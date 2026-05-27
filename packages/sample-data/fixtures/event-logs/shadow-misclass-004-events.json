@@ -1,0 +1,137 @@
+[
+  {
+    "id": "evt-004-01",
+    "incident_id": "inc-00400-0004-0004-0004-000000000004",
+    "device_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    "offset_seconds": 0,
+    "level": "info",
+    "source": "system_monitor",
+    "message": "System nominal. CPU 47%, GPU 54°C, memory 61%. Beginning aisle B-7 traversal."
+  },
+  {
+    "id": "evt-004-02",
+    "incident_id": "inc-00400-0004-0004-0004-000000000004",
+    "device_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    "offset_seconds": 5,
+    "level": "info",
+    "source": "perception_node",
+    "message": "Object detection running at 10Hz. Confidence nominal: p50=0.92, p90=0.96. No obstacles detected."
+  },
+  {
+    "id": "evt-004-03",
+    "incident_id": "inc-00400-0004-0004-0004-000000000004",
+    "device_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    "offset_seconds": 18,
+    "level": "info",
+    "source": "nav2_controller",
+    "message": "Waypoint 3 of 8 reached. Continuing mission. Path clear."
+  },
+  {
+    "id": "evt-004-04",
+    "incident_id": "inc-00400-0004-0004-0004-000000000004",
+    "device_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    "offset_seconds": 30,
+    "level": "warn",
+    "source": "confidence_monitor",
+    "message": "Detection confidence trending down: p50=0.88 (baseline=0.93). Overhead scaffolding shadow entering camera FOV."
+  },
+  {
+    "id": "evt-004-05",
+    "incident_id": "inc-00400-0004-0004-0004-000000000004",
+    "device_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    "offset_seconds": 38,
+    "level": "warn",
+    "source": "object_detector",
+    "message": "Ambiguous detection in bottom-left quadrant. Bounding box oscillating between 'shadow' and 'obstacle' classes. Confidence: 0.61."
+  },
+  {
+    "id": "evt-004-06",
+    "incident_id": "inc-00400-0004-0004-0004-000000000004",
+    "device_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    "offset_seconds": 44,
+    "level": "error",
+    "source": "confidence_monitor",
+    "message": "Detection confidence collapsed to 0.41. Drop rate: 0.54 over 14 seconds. Threshold breach."
+  },
+  {
+    "id": "evt-004-07",
+    "incident_id": "inc-00400-0004-0004-0004-000000000004",
+    "device_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    "offset_seconds": 46,
+    "level": "error",
+    "source": "watchpoint_detector",
+    "message": "INCIDENT CREATED: Shadow misclassification — YOLO confidence collapse in warehouse aisle [severity=high]"
+  },
+  {
+    "id": "evt-004-08",
+    "incident_id": "inc-00400-0004-0004-0004-000000000004",
+    "device_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    "offset_seconds": 47,
+    "level": "error",
+    "source": "ood_detector",
+    "message": "OOD signal: embedding distance 2.71σ from training centroid (threshold=2.0σ). Input distribution shift detected."
+  },
+  {
+    "id": "evt-004-09",
+    "incident_id": "inc-00400-0004-0004-0004-000000000004",
+    "device_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    "offset_seconds": 50,
+    "level": "warn",
+    "source": "system_monitor",
+    "message": "System still nominal. CPU 48%, GPU 54°C. Failure is NOT infrastructure. Perception layer investigation required."
+  },
+  {
+    "id": "evt-004-10",
+    "incident_id": "inc-00400-0004-0004-0004-000000000004",
+    "device_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    "offset_seconds": 55,
+    "level": "error",
+    "source": "object_detector",
+    "message": "Shadow region misclassified as solid obstacle with bounding box 0.38×0.22m. False positive rate: 0.29."
+  },
+  {
+    "id": "evt-004-11",
+    "incident_id": "inc-00400-0004-0004-0004-000000000004",
+    "device_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    "offset_seconds": 60,
+    "level": "error",
+    "source": "ood_detector",
+    "message": "OOD signal persisting. Softmax entropy: 0.81 (threshold=0.60). Model uncertainty elevated."
+  },
+  {
+    "id": "evt-004-12",
+    "incident_id": "inc-00400-0004-0004-0004-000000000004",
+    "device_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    "offset_seconds": 65,
+    "level": "fatal",
+    "source": "nav2_controller",
+    "message": "Emergency stop triggered. Perception confidence 0.21 — below minimum threshold (0.35) for safe navigation."
+  },
+  {
+    "id": "evt-004-13",
+    "incident_id": "inc-00400-0004-0004-0004-000000000004",
+    "device_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    "offset_seconds": 70,
+    "level": "warn",
+    "source": "watchpoint_detector",
+    "message": "Grad-CAM analysis queued. Attention heatmap shows 84% activation in bottom-left quadrant — consistent with shadow fixation."
+  },
+  {
+    "id": "evt-004-14",
+    "incident_id": "inc-00400-0004-0004-0004-000000000004",
+    "device_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    "offset_seconds": 80,
+    "level": "warn",
+    "source": "watchpoint_detector",
+    "message": "Root cause hypothesis: YOLO training data lacks scaffold shadow examples at current illumination angle. OOD embedding distance: 2.7σ from nearest training cluster."
+  },
+  {
+    "id": "evt-004-15",
+    "incident_id": "inc-00400-0004-0004-0004-000000000004",
+    "device_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    "offset_seconds": 90,
+    "level": "info",
+    "source": "watchpoint_detector",
+    "message": "Recommendation: Collect shadow training data under current lighting. Replay bundle available for model retraining."
+  }
+]

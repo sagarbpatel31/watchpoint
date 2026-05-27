@@ -6,9 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.models.telemetry import EventLog, MetricPoint
-from app.rca.ai_rules import RuleAI001, RuleAI002, RuleAI003
+from app.rca.ai_rules import RuleAI001, RuleAI002, RuleAI003, RuleAI004, RuleAI005
 
-_AI_RULES = [RuleAI001(), RuleAI002(), RuleAI003()]
+_AI_RULES = [RuleAI001(), RuleAI002(), RuleAI003(), RuleAI004(), RuleAI005()]
 
 
 async def generate_llm_summary(

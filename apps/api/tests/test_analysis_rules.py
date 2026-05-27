@@ -7,13 +7,11 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from app.models.telemetry import EventLog, LogLevel, MetricPoint
-
 
 # ---------------------------------------------------------------------------
 # Helpers — build fake ORM objects

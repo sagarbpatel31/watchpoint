@@ -1,0 +1,21 @@
+{
+  "id": "inc-00400-0004-0004-0004-000000000004",
+  "project_id": "11111111-1111-1111-1111-111111111111",
+  "device_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+  "deployment_id": "dddddddd-dddd-dddd-dddd-dddddddddd01",
+  "title": "Shadow misclassification — YOLO confidence collapse in warehouse aisle",
+  "description": "YOLO perception model stopped mid-mission after misidentifying a shadow cast by overhead scaffolding as an obstacle. System metrics (CPU, GPU temp, memory) remained nominal throughout. The model's detection confidence collapsed from 0.93 to 0.21 over 45 seconds as the camera traversed an angle the model had not encountered in training. OOD embedding distance exceeded 2.7σ from training centroid. Robot issued emergency stop. Infrastructure was healthy — the failure is entirely at the AI perception layer.",
+  "severity": "high",
+  "status": "investigating",
+  "duration_seconds": 120,
+  "root_cause": "Out-of-distribution input: warehouse scaffolding shadow at acute angle created visual pattern absent from YOLO training data. Model fixated on shadow region (Grad-CAM shows bottom-left quadrant activation). Detection confidence collapsed as model uncertainty increased.",
+  "labels": {
+    "category": "ood-perception",
+    "subsystem": "object-detection",
+    "auto_detected": true,
+    "model": "yolov8n-warehouse",
+    "rules_fired": ["AI-001", "AI-002"]
+  },
+  "created_at_offset_seconds": -1800,
+  "resolved_at_offset_seconds": null
+}
