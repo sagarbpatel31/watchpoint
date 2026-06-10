@@ -13,6 +13,8 @@ try:
 
     HAS_TORCH = True
 except ImportError:
+    torch = None
+    nn = None
     HAS_TORCH = False
 
 pytestmark = pytest.mark.skipif(not HAS_TORCH, reason="torch not installed")
@@ -22,18 +24,22 @@ pytestmark = pytest.mark.skipif(not HAS_TORCH, reason="torch not installed")
 # Minimal test model
 # ---------------------------------------------------------------------------
 
+if HAS_TORCH:
 
-class TinyNet(nn.Module):
-    """Two-layer linear network for testing hooks."""
+    class TinyNet(nn.Module):
+        """Two-layer linear network for testing hooks."""
 
-    def __init__(self) -> None:
-        super().__init__()
-        self.fc1 = nn.Linear(8, 16)
-        self.relu = nn.ReLU()
-        self.fc2 = nn.Linear(16, 4)
+        def __init__(self) -> None:
+            super().__init__()
+            self.fc1 = nn.Linear(8, 16)
+            self.relu = nn.ReLU()
+            self.fc2 = nn.Linear(16, 4)
 
-    def forward(self, x: "torch.Tensor") -> "torch.Tensor":
-        return self.fc2(self.relu(self.fc1(x)))
+        def forward(self, x: "torch.Tensor") -> "torch.Tensor":
+            return self.fc2(self.relu(self.fc1(x)))
+else:
+    class TinyNet:  # type: ignore[no-redef]
+        pass
 
 
 # ---------------------------------------------------------------------------

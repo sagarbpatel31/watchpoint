@@ -11,14 +11,21 @@ from __future__ import annotations
 
 import os
 import time
+from importlib import import_module
 from typing import Any
 
-import msgpack
-import numpy as np
+
+def _get_msgpack() -> Any:
+    return import_module("msgpack")
+
+
+def _get_numpy() -> Any:
+    return import_module("numpy")
 
 
 def _encode_numpy(obj: Any) -> Any:
     """msgpack default encoder — handles numpy arrays."""
+    np = _get_numpy()
     if isinstance(obj, np.ndarray):
         return {
             "__ndarray__": True,
@@ -52,6 +59,7 @@ def flush_to_disk(
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, f"run_{ts_ns}.msgpack")
 
+    msgpack = _get_msgpack()
     packed = msgpack.packb(frames, default=_encode_numpy, use_bin_type=True)
     with open(out_path, "wb") as f:
         f.write(packed)
@@ -67,6 +75,7 @@ def load_from_disk(file_path: str) -> list[dict[str, Any]]:
 
     def _decode_numpy(obj: Any) -> Any:
         # With raw=False, msgpack decodes keys as str — use str keys here.
+        np = _get_numpy()
         if isinstance(obj, dict) and obj.get("__ndarray__"):
             return np.frombuffer(obj["data"], dtype=obj["dtype"]).reshape(obj["shape"])
         return obj
@@ -74,4 +83,5 @@ def load_from_disk(file_path: str) -> list[dict[str, Any]]:
     with open(file_path, "rb") as f:
         raw = f.read()
 
+    msgpack = _get_msgpack()
     return msgpack.unpackb(raw, object_hook=_decode_numpy, raw=False)

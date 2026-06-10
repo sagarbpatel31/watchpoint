@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import os
 
-import numpy as np
 import pytest
+pytest.importorskip("msgpack")
+np = pytest.importorskip("numpy")
 
 from model_collector.writer import flush_to_disk, load_from_disk
 
