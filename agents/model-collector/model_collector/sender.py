@@ -24,6 +24,7 @@ def send_model_run(
     model_name: str,
     framework: str = "pytorch",
     metadata: dict[str, Any] | None = None,
+    device_token: str | None = None,
 ) -> dict[str, Any]:
     """Register a model run with the backend.
 
@@ -38,7 +39,8 @@ def send_model_run(
     }
     url = f"{backend_url.rstrip('/')}/api/v1/ingest/model-runs"
     with httpx.Client(timeout=10.0) as client:
-        resp = client.post(url, json=payload)
+        headers = {"X-Device-Token": device_token} if device_token else None
+        resp = client.post(url, json=payload, headers=headers)
         resp.raise_for_status()
         return resp.json()
 
@@ -47,6 +49,7 @@ def send_inferences(
     backend_url: str,
     frames: list[dict[str, Any]],
     incident_id: str | None = None,
+    device_token: str | None = None,
 ) -> dict[str, Any]:
     """Batch-send captured inference frames to the backend.
 
@@ -82,7 +85,8 @@ def send_inferences(
 
     url = f"{backend_url.rstrip('/')}/api/v1/ingest/inferences"
     with httpx.Client(timeout=30.0) as client:
-        resp = client.post(url, json={"inferences": inferences})
+        headers = {"X-Device-Token": device_token} if device_token else None
+        resp = client.post(url, json={"inferences": inferences}, headers=headers)
         resp.raise_for_status()
         log.info("Sent %d inference frames to backend", len(inferences))
         return resp.json()

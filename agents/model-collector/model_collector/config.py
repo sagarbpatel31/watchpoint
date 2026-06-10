@@ -21,6 +21,7 @@ class CollectorConfig:
     backend_url: str = field(
         default_factory=lambda: os.environ.get("WP_BACKEND_URL", "http://localhost:8000")
     )
+    device_token: str = field(default_factory=lambda: os.environ.get("WP_DEVICE_TOKEN", ""))
 
     # Ring buffer — how many inference frames to keep in memory before oldest are dropped
     ring_buffer_size: int = field(

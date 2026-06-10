@@ -1,6 +1,6 @@
 """AI layer ingest and query endpoints.
 
-Unauthenticated (same policy as /ingest/* routes) — Priority 3 to add auth.
+Device-token authenticated. Same `X-Device-Token` policy as /ingest/* routes.
 
 Routers:
   router             — POST /ingest/model-runs, /ingest/inferences, /ingest/decisions
@@ -12,11 +12,12 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.device_tokens import require_device_token
 from app.models.ai_layer import Decision, Inference, ModelRun
 from app.schemas.ai_layer import (
     AttentionResponse,
@@ -49,8 +50,10 @@ inferences_router = APIRouter(prefix="/inferences", tags=["ai-inferences"])
 )
 async def create_model_run(
     payload: ModelRunCreate,
+    x_device_token: str | None = Header(default=None, alias="X-Device-Token"),
     db: AsyncSession = Depends(get_db),
 ) -> ModelRunResponse:
+    await require_device_token(payload.device_id, x_device_token, db)
     run = ModelRun(
         id=payload.id or uuid.uuid4(),
         device_id=payload.device_id,
@@ -83,10 +86,18 @@ async def create_model_run(
 )
 async def ingest_inferences(
     payload: InferenceBatchCreate,
+    x_device_token: str | None = Header(default=None, alias="X-Device-Token"),
     db: AsyncSession = Depends(get_db),
 ) -> IngestResponse:
+    first_device_id = payload.inferences[0].device_id
+    await require_device_token(first_device_id, x_device_token, db)
     rows: list[Inference] = []
     for item in payload.inferences:
+        if item.device_id != first_device_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="All inference entries in a batch must belong to the same device",
+            )
         rows.append(
             Inference(
                 id=item.inference_id or uuid.uuid4(),
@@ -127,11 +138,19 @@ async def ingest_inferences(
 )
 async def ingest_decisions(
     payload: DecisionBatchCreate,
+    x_device_token: str | None = Header(default=None, alias="X-Device-Token"),
     db: AsyncSession = Depends(get_db),
 ) -> IngestResponse:
     now = datetime.now(timezone.utc)
     rows: list[Decision] = []
     for item in payload.decisions:
+        result = await db.execute(
+            select(Inference.device_id).where(Inference.id == item.inference_id)
+        )
+        device_id = result.scalar_one_or_none()
+        if device_id is None:
+            raise HTTPException(status_code=404, detail="Inference not found")
+        await require_device_token(device_id, x_device_token, db)
         rows.append(
             Decision(
                 inference_id=item.inference_id,

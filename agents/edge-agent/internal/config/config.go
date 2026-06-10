@@ -7,5 +7,6 @@ type Config struct {
 	APIURL             string
 	DeviceID           string
 	DeviceName         string
+	ProjectID          string
 	CollectionInterval time.Duration
 }

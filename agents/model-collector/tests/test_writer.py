@@ -1,9 +1,11 @@
 """Tests for the msgpack writer (no torch required)."""
+
 from __future__ import annotations
 
 import os
 
 import pytest
+
 pytest.importorskip("msgpack")
 np = pytest.importorskip("numpy")
 

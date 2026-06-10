@@ -21,7 +21,7 @@ func main() {
 	log.Printf("Watchpoint edge-agent starting (device=%s, interval=%s, api=%s)",
 		cfg.DeviceID, cfg.CollectionInterval, cfg.APIURL)
 
-	client := sender.NewClient(cfg.APIURL, cfg.DeviceID, cfg.DeviceName)
+	client := sender.NewClient(cfg.APIURL, cfg.DeviceID, cfg.DeviceName, cfg.ProjectID)
 
 	// Register device on startup.
 	if err := client.RegisterDevice(); err != nil {
@@ -62,6 +62,7 @@ func parseFlags() config.Config {
 	apiURL := flag.String("api-url", "http://localhost:8000", "Watchpoint API base URL")
 	deviceID := flag.String("device-id", "", "Unique device identifier")
 	deviceName := flag.String("device-name", "", "Human-readable device name")
+	projectID := flag.String("project-id", "11111111-1111-1111-1111-111111111111", "Project UUID")
 	interval := flag.Duration("interval", 5*time.Second, "Metrics collection interval")
 	flag.Parse()
 
@@ -80,6 +81,7 @@ func parseFlags() config.Config {
 		APIURL:             *apiURL,
 		DeviceID:           *deviceID,
 		DeviceName:         *deviceName,
+		ProjectID:          *projectID,
 		CollectionInterval: *interval,
 	}
 }

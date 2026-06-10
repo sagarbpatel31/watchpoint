@@ -30,6 +30,10 @@ class DeviceResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class DeviceRegistrationResponse(DeviceResponse):
+    device_token: str
+
+
 class DeploymentCreate(BaseModel):
     device_id: uuid.UUID
     version: str

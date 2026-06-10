@@ -117,9 +117,9 @@ Then re-run: `curl -X POST http://localhost:8000/api/v1/seed/demo`
 
 ### R3. 🟠 Telemetry injection via unauthenticated ingest
 
-**Risk:** `/ingest/metrics`, `/ingest/logs`, `/ingest/events` require no auth. Any caller with a known device UUID can inject arbitrary metric values that trigger analysis rules.
-**Trigger:** Repo is public. Device UUIDs visible in seed data or API responses.
-**Mitigation:** Priority 3 — add device-scoped API token header (`X-Device-Token`).
+**Status:** mitigated in source
+**Fix:** `/ingest/metrics`, `/ingest/logs`, `/ingest/events`, `/ingest/model-runs`, `/ingest/inferences`, `/ingest/decisions`, and `/devices/heartbeat/{id}` now require `X-Device-Token`. Device tokens are issued on registration and stored hashed on the device row.
+**Residual risk:** Deployment still needs to confirm the new header is enforced in production and that seeded/demo flows receive a valid token.
 
 ---
 

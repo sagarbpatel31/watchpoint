@@ -37,10 +37,10 @@ Do not write a single line of production code until you have read these four fil
 - Prompt ends with output constraint: e.g., `"Terse. No preamble."`
 
 ### Database
-- Alembic migrations now exist: `0001_initial`, `0002_ai_layer`
 - `create_all` on startup is still part of the runtime path (fine for dev, risky for live schema changes)
 - For any new column on an existing table: provide the `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` SQL alongside the model change
 - Prefer migration-first schema changes; do not generate or rewrite migrations casually without understanding existing history
+- Alembic migrations now exist: `0001_initial`, `0002_ai_layer`, `0003_device_api_tokens`
 
 ### Secrets
 - `JWT_SECRET_KEY` and `ANTHROPIC_API_KEY` from env vars only

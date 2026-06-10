@@ -1,16 +1,16 @@
 # Current Task
 
-Last updated: 2026-05-31.
+Last updated: 2026-06-10.
 
 ## Active branch
 
-Current checkout is `main`.
+Current checkout is `docs-production-audit`.
 
 This repo is no longer just the original MVP. The codebase now includes:
 - Core incident intelligence backend + frontend
 - AI-layer ingest/query endpoints and rules
 - A Python `model-collector` package
-- Alembic migration files `0001_initial` and `0002_ai_layer`
+- Alembic migration files `0001_initial`, `0002_ai_layer`, and `0003_device_api_tokens`
 
 ---
 
@@ -26,6 +26,7 @@ This repo is no longer just the original MVP. The codebase now includes:
 | Next.js dashboard, login, device, incident, inference views | Implemented | `apps/web/src/app/` |
 | AI-layer data model (model runs, inferences, decisions, OOD signals) | Implemented | `apps/api/app/models/ai_layer.py` |
 | AI-layer ingest/query endpoints | Implemented | `apps/api/app/routers/ai_ingest.py` |
+| Device-scoped ingest auth | Implemented | `apps/api/app/device_tokens.py`, `apps/api/app/routers/ingest.py` |
 | AI-layer RCA rules AI-001, AI-002, AI-003 | Implemented | `apps/api/app/rca/ai_rules/` |
 | Demo seed data including AI-layer frames | Implemented | `apps/api/app/routers/seed.py` |
 | Go edge agent | Implemented, still partly stubbed | `agents/edge-agent/` |
@@ -39,15 +40,14 @@ This repo is no longer just the original MVP. The codebase now includes:
 | Check | Result |
 |------|--------|
 | Frontend lint | Passed via `npm run lint` in `apps/web` |
-| API tests exist | Present in `apps/api/tests/` |
-| Model-collector tests exist | Present in `agents/model-collector/tests/` |
+| API tests | `39 passed` under `apps/api/.venv/bin/pytest -q` |
+| Model-collector tests | `16 passed` under `agents/model-collector/.venv/bin/pytest -q` |
+| Edge agent compile | `go test ./...` passed with local GOCACHE |
 
 ### ⚠️ Verification gaps found during this review
 
 | Gap | Detail |
 |-----|--------|
-| Python test envs are stale | Checked-in `.venv` entrypoints still point at the old repo path `.../Documents/Tracemind/...` |
-| Offline dependency resolution | Fresh `uv` runs cannot refill missing deps without network access |
 | Production deploy not proven | No confirmed live Render API URL or wired Vercel production API base in this review |
 
 ---
@@ -73,7 +73,7 @@ Blocking items:
 
 What is true now:
 - Alembic is initialized
-- Migration files already exist: `0001_initial`, `0002_ai_layer`
+- Migration files already exist: `0001_initial`, `0002_ai_layer`, `0003_device_api_tokens`
 
 What is still incomplete:
 - Runtime still uses `Base.metadata.create_all()` on startup in `apps/api/app/main.py`
@@ -81,19 +81,21 @@ What is still incomplete:
 
 ### 🟠 P3 — Secure ingest endpoints
 
-**Status:** Not started in code.
+**Status:** Complete in source; pending deploy verification.
 
-Current blocker:
-- `/api/v1/ingest/logs`, `/metrics`, `/events` are still unauthenticated in `apps/api/app/routers/ingest.py`
-- AI ingest endpoints in `apps/api/app/routers/ai_ingest.py` are also unauthenticated
+Implemented:
+- Device API tokens are generated on registration and hashed in the database
+- `/api/v1/ingest/logs`, `/metrics`, `/events`, `/ingest/model-runs`, `/ingest/inferences`, `/ingest/decisions`, and `/devices/heartbeat/{id}` require `X-Device-Token`
+- Go edge agent stores the token returned by registration and sends it on telemetry requests
+- Model-collector supports `WP_DEVICE_TOKEN`
 
 ### 🟡 P4 — Real edge telemetry
 
-**Status:** Not started in code.
+**Status:** Partial.
 
 Current blocker:
 - `agents/edge-agent/internal/collector/system.go` still simulates CPU/disk/network
-- `agents/edge-agent/internal/sender/http.go` still hard-codes demo `project_id`
+- `agents/edge-agent/internal/sender/http.go` now accepts `--project-id`, but metrics are still simulated
 
 ### 🟡 P5 — Web auth hardening
 
@@ -109,9 +111,7 @@ Current blocker:
 | Issue | Location | Impact |
 |-------|----------|--------|
 | Runtime still does `create_all` | `apps/api/app/main.py` | Easy to drift from migration-first production discipline |
-| Ingest endpoints unauthenticated | `apps/api/app/routers/ingest.py`, `apps/api/app/routers/ai_ingest.py` | Telemetry injection risk |
 | Edge agent collector stubs | `agents/edge-agent/internal/collector/system.go` | False positives on real hardware |
-| Hard-coded demo project ID | `agents/edge-agent/internal/sender/http.go` | Real deployments all map to seed project |
 | `ros2_snapshot.json` placeholder | `apps/api/app/services/replay_bundle.py` | Replay bundle incomplete |
 | JWT in `localStorage` | `apps/web/src/lib/auth.ts` | XSS-extractable token |
-| Checked-in `.venv` shebangs still reference `Tracemind` path | `apps/api/.venv/`, `agents/model-collector/.venv/` | Local test tooling breaks after repo rename |
+| Production deploy not proven | Render/Vercel wiring | Live stack still needs confirmation |

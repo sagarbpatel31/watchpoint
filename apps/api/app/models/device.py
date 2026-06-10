@@ -21,6 +21,7 @@ class Device(UUIDMixin, TimestampMixin, Base):
 
     project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id"))
     device_name: Mapped[str] = mapped_column(String(255))
+    api_token_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     hardware_model: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     os_version: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     agent_version: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)

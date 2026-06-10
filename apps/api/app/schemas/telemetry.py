@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.models.telemetry import LogLevel
 
@@ -18,7 +18,7 @@ class LogEntry(BaseModel):
 
 
 class LogBatchIngest(BaseModel):
-    logs: list[LogEntry]
+    logs: list[LogEntry] = Field(..., min_length=1)
 
 
 class MetricEntry(BaseModel):
@@ -32,7 +32,7 @@ class MetricEntry(BaseModel):
 
 
 class MetricBatchIngest(BaseModel):
-    metrics: list[MetricEntry]
+    metrics: list[MetricEntry] = Field(..., min_length=1)
 
 
 class EventEntry(BaseModel):
@@ -46,7 +46,7 @@ class EventEntry(BaseModel):
 
 
 class EventBatchIngest(BaseModel):
-    events: list[EventEntry]
+    events: list[EventEntry] = Field(..., min_length=1)
 
 
 class LogResponse(BaseModel):

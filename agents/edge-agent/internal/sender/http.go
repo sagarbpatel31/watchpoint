@@ -10,35 +10,45 @@ import (
 	"github.com/watchpoint/edge-agent/internal/collector"
 )
 
-const demoProjectID = "11111111-1111-1111-1111-111111111111"
-
 // Client sends telemetry data to the Watchpoint API.
 type Client struct {
-	apiURL     string
-	deviceID   string
-	deviceName string
-	httpClient *http.Client
+	apiURL      string
+	deviceID    string
+	deviceName  string
+	projectID   string
+	deviceToken string
+	httpClient  *http.Client
 }
 
 // NewClient creates a new sender client.
-func NewClient(apiURL, deviceID, deviceName string) *Client {
+func NewClient(apiURL, deviceID, deviceName, projectID string) *Client {
 	return &Client{
 		apiURL:     apiURL,
 		deviceID:   deviceID,
 		deviceName: deviceName,
+		projectID:  projectID,
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
 	}
 }
 
+type registerResponse struct {
+	DeviceToken string `json:"device_token"`
+}
+
 // RegisterDevice registers this device with the Watchpoint API.
 func (c *Client) RegisterDevice() error {
 	payload := map[string]string{
-		"project_id":  demoProjectID,
+		"project_id":  c.projectID,
 		"device_name": c.deviceName,
 	}
-	return c.post("/api/v1/devices/register", payload)
+	var resp registerResponse
+	if err := c.postJSON("/api/v1/devices/register", payload, false, &resp); err != nil {
+		return err
+	}
+	c.deviceToken = resp.DeviceToken
+	return nil
 }
 
 // SendMetrics posts a metrics snapshot to the API as a batch.
@@ -52,7 +62,7 @@ func (c *Client) SendMetrics(m collector.SystemMetrics) error {
 	payload := map[string]interface{}{
 		"metrics": metrics,
 	}
-	return c.post("/api/v1/ingest/metrics", payload)
+	return c.postJSON("/api/v1/ingest/metrics", payload, true, nil)
 }
 
 // SendLog posts a log entry to the API as a batch.
@@ -69,11 +79,11 @@ func (c *Client) SendLog(level, source, message string) error {
 			},
 		},
 	}
-	return c.post("/api/v1/ingest/logs", payload)
+	return c.postJSON("/api/v1/ingest/logs", payload, true, nil)
 }
 
-// post marshals payload to JSON and POSTs it to the given path.
-func (c *Client) post(path string, payload interface{}) error {
+// postJSON marshals payload to JSON, POSTs it to the given path, and optionally decodes JSON.
+func (c *Client) postJSON(path string, payload interface{}, auth bool, out interface{}) error {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("marshal payload: %w", err)
@@ -85,6 +95,9 @@ func (c *Client) post(path string, payload interface{}) error {
 		return fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if auth && c.deviceToken != "" {
+		req.Header.Set("X-Device-Token", c.deviceToken)
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -94,6 +107,11 @@ func (c *Client) post(path string, payload interface{}) error {
 
 	if resp.StatusCode >= 300 {
 		return fmt.Errorf("unexpected status %d from %s", resp.StatusCode, path)
+	}
+	if out != nil {
+		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+			return fmt.Errorf("decode response from %s: %w", path, err)
+		}
 	}
 	return nil
 }

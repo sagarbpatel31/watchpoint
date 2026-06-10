@@ -4,6 +4,7 @@ These tables capture what the model saw, predicted, and decided during an
 incident window. They are the core of Watchpoint's AI failure forensics.
 
 Migration: alembic/versions/0002_ai_layer.py
+Device auth migration: alembic/versions/0003_device_api_tokens.py
 """
 
 from __future__ import annotations

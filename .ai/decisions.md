@@ -24,7 +24,7 @@ Decisions visible in the codebase. Read before changing anything they affect.
 
 ## 3. create_all on startup, with Alembic now present
 
-**Files:** `apps/api/app/main.py:lifespan()`, `apps/api/alembic/versions/0001_initial.py`, `apps/api/alembic/versions/0002_ai_layer.py`
+**Files:** `apps/api/app/main.py:lifespan()`, `apps/api/alembic/versions/0001_initial.py`, `apps/api/alembic/versions/0002_ai_layer.py`, `apps/api/alembic/versions/0003_device_api_tokens.py`
 **Decision:** Runtime still uses `Base.metadata.create_all()` on startup, even though Alembic migrations now exist in the repo.
 **Why:** The project started in MVP mode and later added migration files without fully switching the operational boot path.
 **Tradeoff:** The repo has a migration history, but production discipline is still ambiguous until deploy/runbooks use `alembic upgrade head` explicitly. Priority 2 is now to switch workflow to migration-first, not to initialize Alembic from scratch.
@@ -66,12 +66,12 @@ Decisions visible in the codebase. Read before changing anything they affect.
 
 ---
 
-## 8. Ingest endpoints unauthenticated (intentional MVP choice)
+## 8. Ingest endpoints now device-token authenticated
 
-**File:** `apps/api/app/routers/ingest.py`
-**Decision:** No auth on `/ingest/*` routes.
-**Why:** Edge agents need simple HTTP POST without token management. Device ID acts as implicit identifier for MVP.
-**Tradeoff:** Any caller with a valid device UUID can inject data. Priority 3 to fix — add device-scoped API tokens.
+**Files:** `apps/api/app/routers/ingest.py`, `apps/api/app/routers/ai_ingest.py`, `apps/api/app/routers/devices.py`
+**Decision:** `/ingest/*`, `/devices/heartbeat/{id}`, and AI-layer ingest now require `X-Device-Token`.
+**Why:** Device IDs are no longer sufficient as bearer identifiers. Tokens are issued at registration and stored hashed on the device record.
+**Tradeoff:** Edge senders now manage a per-device secret, but the inject-any-device-UUID hole is closed.
 
 ---
 
@@ -92,9 +92,8 @@ Decisions visible in the codebase. Read before changing anything they affect.
 
 ---
 
-## 11. No auth on ingest + hard-coded project_id in agent
+## 11. Agent project id is configurable; metrics are still simulated
 
-**File:** `agents/edge-agent/internal/sender/http.go`
-**Decision:** `project_id` hard-coded as `11111111-1111-1111-1111-111111111111` — matches seed data.
-**Why:** Demo simplicity. Works with the seeded project out of the box.
-**Fix needed:** Make `--project-id` a CLI flag alongside `--device-id`.
+**Files:** `agents/edge-agent/cmd/agent/main.go`, `agents/edge-agent/internal/sender/http.go`, `agents/edge-agent/internal/collector/system.go`
+**Decision:** `project_id` is now a CLI flag, but the collector still simulates CPU/disk/network values.
+**Why:** Registration and ingest can now target a real project without recompiling the agent. The remaining blocker is real metrics collection, not routing.

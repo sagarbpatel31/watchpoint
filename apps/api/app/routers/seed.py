@@ -13,6 +13,7 @@ from app.models.incident import Incident, IncidentStatus, Severity
 from app.models.telemetry import EventLog, LogLevel, MetricPoint
 from app.models.user import User
 from app.models.workspace import Project, Workspace
+from app.device_tokens import generate_device_token, hash_device_token
 from app.security import hash_password
 
 router = APIRouter(prefix="/seed", tags=["seed"])
@@ -108,10 +109,12 @@ async def seed_demo_data(db: AsyncSession = Depends(get_db)):
     ]
 
     for d in devices_data:
+        device_token = generate_device_token()
         device = Device(
             id=d["id"],
             project_id=PROJECT_ID,
             device_name=d["name"],
+            api_token_hash=hash_device_token(device_token),
             hardware_model=d["hardware"],
             os_version=d["os"],
             agent_version=d["agent"],

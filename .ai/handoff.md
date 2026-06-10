@@ -1,7 +1,7 @@
 # Handoff
 
 Single source of truth for resuming work after any context break.
-Last updated: 2026-05-31.
+Last updated: 2026-06-10.
 
 ---
 
@@ -19,8 +19,8 @@ Last updated: 2026-05-31.
 |---|------|--------|
 | **P1** | Deploy frontend + backend + database end-to-end | ❌ Blocked on user signups |
 | **P2** | Switch production workflow to migration-first | ⚠️ Partial — Alembic files exist, runtime still uses `create_all` |
-| **P3** | Secure ingest endpoints | ❌ Not started |
-| **P4** | Replace simulated edge agent metrics with real collectors | ❌ Not started |
+| **P3** | Secure ingest endpoints | ✅ Implemented in source; deploy verification still needed |
+| **P4** | Replace simulated edge agent metrics with real collectors | ⚠️ Partial — project ID configurable, metrics still simulated |
 | **P5** | Switch JWT from localStorage to httpOnly cookie | ❌ Not started |
 
 **Do not start P3–P5 before P1 is complete.** P2 should happen immediately after first production deploy — before the next schema change.
@@ -57,7 +57,7 @@ curl https://watchpoint-api.onrender.com/api/v1/health
 | Branch | Status |
 |--------|--------|
 | `main` | Active checkout during this audit |
-| Repo status | MVP + AI layer + model-collector + Alembic migrations present in source |
+| Repo status | MVP + AI layer + model-collector + device-token auth + Alembic migrations present in source |
 
 ---
 
@@ -105,14 +105,15 @@ apps/api/app/config.py                  All settings + URL normalization
 apps/api/app/security.py               JWT + bcrypt auth
 apps/api/app/services/analysis.py      7 rules engine + Haiku LLM summary
 apps/api/app/services/replay_bundle.py ZIP bundle generation
-apps/api/app/routers/ingest.py         Unauthenticated telemetry ingest (P3 target)
-apps/api/app/routers/ai_ingest.py      Unauthenticated AI-layer ingest/query endpoints
-apps/api/alembic/versions/             0001_initial + 0002_ai_layer
+apps/api/app/device_tokens.py         Device token hashing + auth helpers
+apps/api/app/routers/ingest.py         Authenticated telemetry ingest
+apps/api/app/routers/ai_ingest.py      Authenticated AI-layer ingest/query endpoints
+apps/api/alembic/versions/             0001_initial + 0002_ai_layer + 0003_device_api_tokens
 apps/web/src/lib/api-client.ts         Typed HTTP client with JWT injection
 apps/web/src/lib/auth.ts               Token storage in localStorage (P5 target)
 apps/web/src/types/index.ts            All TypeScript interfaces
 agents/edge-agent/internal/collector/system.go  Simulated metrics (P4 target)
-agents/edge-agent/internal/sender/http.go       Hard-coded project_id (P4 target)
+agents/edge-agent/internal/sender/http.go       Token-aware sender + configurable project ID
 agents/model-collector/                Python model instrumentation package + tests
 ```
 

@@ -1,6 +1,6 @@
 # Next Steps
 
-Last updated: 2026-05-31.
+Last updated: 2026-06-10.
 
 Priority order is fixed. Deployment remains first, but the Alembic item is no longer "initialize migrations" because that work already exists in the repo.
 
@@ -47,6 +47,7 @@ Nothing is more important than proving the real hosted stack works.
 Alembic is already present:
 - `apps/api/alembic/versions/0001_initial.py`
 - `apps/api/alembic/versions/0002_ai_layer.py`
+- `apps/api/alembic/versions/0003_device_api_tokens.py`
 
 Remaining work:
 - Document and use `alembic upgrade head` for production bootstrapping
@@ -57,23 +58,18 @@ Do this immediately after the first confirmed production deploy.
 
 ---
 
-## 🟠 Priority 3 — Secure all ingest endpoints
+## ✅ Priority 3 — Secure all ingest endpoints
 
-Files:
-- `apps/api/app/routers/ingest.py`
-- `apps/api/app/routers/ai_ingest.py`
+Implemented:
+- Device API tokens are issued on registration and stored hashed in `devices.api_token_hash`
+- Classic telemetry ingest now requires `X-Device-Token`
+- AI-layer ingest now requires `X-Device-Token`
+- `POST /devices/heartbeat/{id}` now requires `X-Device-Token`
+- Go edge-agent stores the returned token after registration
+- Model-collector accepts `WP_DEVICE_TOKEN`
 
-Current state:
-- Classic telemetry ingest is unauthenticated
-- AI-layer ingest is also unauthenticated
-
-Recommended fix:
-- Add device-scoped API tokens for edge/ROS2 collectors
-- Add a separate scoped token strategy for the model-collector
-- Accept token via header such as `X-Device-Token`
-- Store only hashed tokens server-side
-
-Do not use JWTs for embedded agents.
+Remaining verification:
+- Confirm the deploy path preserves the new device token flow end-to-end in Render/Vercel
 
 ---
 
@@ -85,7 +81,6 @@ Files:
 
 Required changes:
 - Replace simulated CPU/disk/network with real collection
-- Make `project_id` configurable instead of hard-coded
 - Validate behavior on Linux/Jetson target environment
 
 Do not deploy the current Go agent to real hardware expecting trustworthy RCA inputs.
@@ -112,7 +107,5 @@ This matters, but it is still behind P1-P4.
 
 These are not the top production blockers, but they should be fixed soon:
 
-- Recreate stale checked-in `.venv` environments whose shebangs still reference the old `Tracemind` path
-- Update README naming and clone instructions to `Watchpoint`
 - Populate `ros2_snapshot.json` instead of shipping a placeholder in replay bundles
-- Decide whether AI-layer ingest should stay public in demos or be secured alongside classic ingest
+- Confirm the production frontend domain and CORS origin match the Render deploy URL
