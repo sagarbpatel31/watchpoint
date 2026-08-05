@@ -2,12 +2,12 @@
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in TraceMind, please report it
+If you discover a security vulnerability in Watchpoint, please report it
 **privately** rather than opening a public issue.
 
 You can report vulnerabilities by:
 
-1. Opening a [private security advisory](https://github.com/sagarbpatel31/tracemind/security/advisories/new) on GitHub (preferred)
+1. Opening a [private security advisory](https://github.com/sagarbpatel31/watchpoint/security/advisories/new) on GitHub (preferred)
 2. Or contacting the maintainer directly via the GitHub profile
 
 ### What to include
@@ -37,14 +37,14 @@ This is an early-stage project. Only the `main` branch receives security updates
 
 ## Security Considerations for Users
 
-If you're running TraceMind locally or in production:
+If you're running Watchpoint locally or in production:
 
 - **Always set `JWT_SECRET_KEY`** to a strong random value via environment variable.
   Generate one with: `openssl rand -hex 32`
 - **Never commit `.env` files** — use `.env.example` as a template
-- **Change the demo user password** (`demo@tracemind.ai` / `demo123`) before
+- **Change the demo user password** (`demo@watchpoint.ai` / `demo123`) before
   deploying anywhere accessible from the internet
 - **Use TLS** in production — terminate at your load balancer or reverse proxy
 - **Restrict CORS_ORIGINS** to only the domains that need access to the API
 
-Thank you for helping keep TraceMind and its users safe.
+Thank you for helping keep Watchpoint and its users safe.

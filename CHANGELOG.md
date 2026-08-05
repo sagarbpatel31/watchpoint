@@ -5,6 +5,55 @@ Format: [Conventional Commits](https://www.conventionalcommits.org/).
 
 ---
 
+## [0.3.0] — Go-to-market foundation (2026-08-05)
+
+### Changed
+- **LICENSE is now Apache 2.0** (was the TraceMind Source-Available License).
+  The previous license permitted "reference, evaluation, and educational
+  purposes only" and forbade commercial use without written permission, which
+  made the free self-hosted tier impossible and left design partners unable to
+  legally run Watchpoint on a production fleet. It also still carried the old
+  project name and a repository URL that no longer resolves. Rationale and the
+  open-core boundary are documented in `docs/gtm/licensing.md`.
+- **Landing page repositioned** (`apps/web/src/app/page.tsx`) from generic
+  incident monitoring to the AI-layer wedge — what the model saw, predicted,
+  decided, and whether the input was out of distribution.
+  - Removed unsubstantiated metrics ("10K+ incidents captured", "73% MTTR
+    reduction", "5+ supported platforms") — no evidence exists for any of them.
+  - Removed the non-existent `watchpoint.ai/install.sh` install command in
+    favour of the real clone-and-compose quickstart.
+  - Every roadmap capability is now labelled as roadmap; only AI-001/002/003 are
+    marked shipped.
+- **Makefile is portable.** Tool paths resolved from `PATH` with macOS fallbacks
+  and per-invocation overrides (`make test UV=...`), so `make test` / `make lint`
+  run on Linux and in CI instead of only on one laptop.
+
+### Added
+- `apps/web/src/app/pricing/page.tsx` — Community / Team / Enterprise tiers,
+  design-partner offer, honest "hosted cloud is not built yet" section.
+- `docs/gtm/positioning.md` — canonical positioning, ICP, competitive analysis,
+  objection handling, and the claim-discipline rules the site copy follows.
+- `docs/gtm/licensing.md` — the Apache 2.0 decision and open-core boundary.
+- `docs/gtm/yc-application.md` — YC application draft; founder-specific answers
+  are marked `[SAGAR]` rather than invented.
+- `docs/gtm/design-partners.md` — qualification criteria, outreach templates,
+  discovery script, onboarding plan, and design-partner agreement terms.
+- `docs/gtm/blog/01-eight-silent-ai-failures.md` — launch post covering
+  AI-001…AI-008.
+- Makefile targets `typecheck-web`, `build-web`, `check`, and `tools`.
+
+### Fixed
+- Landing page and pricing page lost the space after an inline `<span>`
+  ("shippedrun today", "roadmapare specified"); now explicit `{" "}`.
+
+### Known gaps (unchanged by this release)
+- Ingest endpoints remain unauthenticated — partners must not run a
+  network-exposed instance until device tokens ship.
+- Rules AI-004…AI-008, the replay sandbox, and the Grad-CAM endpoint are
+  specified but not merged.
+
+---
+
 ## [0.2.0] — Week 2+3 YC Sprint (2026-05-04)
 
 ### Added

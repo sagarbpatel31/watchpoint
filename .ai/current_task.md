@@ -1,10 +1,48 @@
 # Current Task
 
-Last updated: 2026-05-31.
+Last updated: 2026-08-05.
 
 ## Active branch
 
-Current checkout is `main`.
+`claude/project-startup-planning-ub8jwb`.
+
+---
+
+## 2026-08-05 — GTM foundation track (complete)
+
+Product priorities P1–P5 below are unchanged. This session ran the
+go-to-market track in parallel, because P1 is blocked on user-side account
+signups rather than on code.
+
+**Landed:**
+
+| Change | Where |
+|--------|-------|
+| LICENSE relicensed to Apache 2.0 | `LICENSE`, rationale in `docs/gtm/licensing.md` |
+| Landing page repositioned on the AI-layer wedge | `apps/web/src/app/page.tsx` |
+| Pricing page added | `apps/web/src/app/pricing/page.tsx` |
+| Positioning, YC draft, design-partner playbook, launch blog post | `docs/gtm/` |
+| Makefile made portable (PATH-first, macOS fallback) | `Makefile` |
+| TraceMind → Watchpoint rename completed | README, SECURITY.md, seed fixtures, package.json |
+
+**Why the license changed:** the old TraceMind Source-Available License allowed
+evaluation only and forbade commercial use without written permission. That made
+the free self-hosted tier impossible and would have put every design partner in
+violation the moment they deployed to a fleet. Apache 2.0 for the core, with
+commercial features kept outside the tree.
+
+**Open item for Sagar:** relicensing is only clean if you hold copyright on the
+whole tree. If anyone else has contributed, get written sign-off before
+publicising the change. Tracked in `docs/gtm/licensing.md` §Follow-up.
+
+**Claim discipline is now a repo rule.** `docs/gtm/positioning.md` §10 governs
+all customer-facing copy: no metric without evidence, roadmap always labelled as
+roadmap. The previous landing page carried invented numbers (10K+ incidents, 73%
+MTTR reduction) and a non-existent install URL; both are gone.
+
+---
+
+## Product state (unchanged from the 2026-05-31 audit)
 
 This repo is no longer just the original MVP. The codebase now includes:
 - Core incident intelligence backend + frontend
@@ -46,7 +84,7 @@ This repo is no longer just the original MVP. The codebase now includes:
 
 | Gap | Detail |
 |-----|--------|
-| Python test envs are stale | Checked-in `.venv` entrypoints still point at the old repo path `.../Documents/Tracemind/...` |
+| Python test envs are stale | Checked-in `.venv` entrypoints still point at the old pre-rename repo path |
 | Offline dependency resolution | Fresh `uv` runs cannot refill missing deps without network access |
 | Production deploy not proven | No confirmed live Render API URL or wired Vercel production API base in this review |
 
@@ -114,4 +152,4 @@ Current blocker:
 | Hard-coded demo project ID | `agents/edge-agent/internal/sender/http.go` | Real deployments all map to seed project |
 | `ros2_snapshot.json` placeholder | `apps/api/app/services/replay_bundle.py` | Replay bundle incomplete |
 | JWT in `localStorage` | `apps/web/src/lib/auth.ts` | XSS-extractable token |
-| Checked-in `.venv` shebangs still reference `Tracemind` path | `apps/api/.venv/`, `agents/model-collector/.venv/` | Local test tooling breaks after repo rename |
+| Checked-in `.venv` shebangs reference the pre-rename repo path | `apps/api/.venv/`, `agents/model-collector/.venv/` | Local test tooling breaks after repo rename; recreate with `uv sync --extra dev` |

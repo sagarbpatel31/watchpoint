@@ -34,7 +34,7 @@ storage/
 # Go binaries
 agents/edge-agent/edge-agent
 agents/edge-agent/agent
-agents/edge-agent/tracemind-agent
+agents/edge-agent/watchpoint-agent
 
 # Personal Claude Code harness config (not project files)
 .claude/

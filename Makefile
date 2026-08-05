@@ -1,11 +1,27 @@
 # Watchpoint — root Makefile
-# Targets: dev, test, lint, seed, clean
+# Targets: dev, test, lint, typecheck, build-web, seed, clean
+#
+# Tool resolution: prefer whatever is on PATH, fall back to the usual macOS
+# install locations, so the same targets work on a dev laptop, a Linux box, and
+# CI. Override any of them explicitly:  make test UV=/path/to/uv
 
-UV   := /Users/sagarpatel/.local/bin/uv
-BUN  := /Users/sagarpatel/.bun/bin/bun
-DOCKER := /Applications/Docker.app/Contents/Resources/bin/docker
+UV     ?= $(shell command -v uv     2>/dev/null || echo $(HOME)/.local/bin/uv)
+BUN    ?= $(shell command -v bun    2>/dev/null || echo $(HOME)/.bun/bin/bun)
+DOCKER ?= $(shell command -v docker 2>/dev/null || echo /Applications/Docker.app/Contents/Resources/bin/docker)
 
-.PHONY: dev test lint seed clean
+# Web tasks run through bun when present, npx otherwise (CI images often have
+# neither bun nor a global next).
+WEB_RUNNER ?= $(shell command -v bun >/dev/null 2>&1 && echo "$(BUN) x" || echo "npx")
+
+.PHONY: dev test test-api test-model-collector lint lint-api lint-model-collector \
+        lint-web typecheck-web build-web seed clean check tools
+
+# ── Tool check ─────────────────────────────────────────────────────────────
+
+tools:
+	@test -x "$(UV)" || { echo "✗ uv not found at '$(UV)' — install from https://docs.astral.sh/uv/ or pass UV=/path/to/uv"; exit 1; }
+	@echo "✓ uv     $(UV)"
+	@command -v node >/dev/null 2>&1 && echo "✓ node   $$(command -v node)" || echo "… node not found (web targets will fail)"
 
 # ── Local dev stack ────────────────────────────────────────────────────────
 
@@ -38,7 +54,20 @@ lint-model-collector:
 
 lint-web:
 	@echo "▶ lint web"
-	cd apps/web && $(BUN) run lint --max-warnings 0
+	cd apps/web && $(WEB_RUNNER) eslint --max-warnings 0
+
+# ── Typecheck / build ──────────────────────────────────────────────────────
+
+typecheck-web:
+	@echo "▶ typecheck web"
+	cd apps/web && $(WEB_RUNNER) tsc --noEmit
+
+build-web:
+	@echo "▶ build web"
+	cd apps/web && $(WEB_RUNNER) next build
+
+# Everything CI runs.
+check: lint test typecheck-web
 
 # ── Seed ───────────────────────────────────────────────────────────────────
 

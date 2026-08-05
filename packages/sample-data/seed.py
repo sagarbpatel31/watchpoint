@@ -1,10 +1,10 @@
-"""Seed the TraceMind API with sample data from fixture files.
+"""Seed the Watchpoint API with sample data from fixture files.
 
 Usage:
     python seed.py [--api-url http://localhost:8000]
 
 Loads devices, deployments, incidents, event logs, and metric points
-from the fixtures/ directory and posts them to the TraceMind API.
+from the fixtures/ directory and posts them to the Watchpoint API.
 Timestamps use relative offsets so data always appears fresh.
 """
 
@@ -51,8 +51,8 @@ async def seed_workspace(client: httpx.AsyncClient, base_time: float) -> None:
     print("[1/6] Creating workspace...")
     payload = {
         "id": WORKSPACE_ID,
-        "name": "TraceMind Demo",
-        "slug": "tracemind-demo",
+        "name": "Watchpoint Demo",
+        "slug": "watchpoint-demo",
     }
     resp = await client.post("/api/v1/workspaces", json=payload)
     if resp.status_code in (200, 201, 409):
@@ -232,7 +232,7 @@ async def verify_seed(client: httpx.AsyncClient) -> None:
 
 async def main(api_url: str) -> None:
     """Run the full seed process."""
-    print(f"Seeding TraceMind API at {api_url}")
+    print(f"Seeding Watchpoint API at {api_url}")
     print("=" * 60)
 
     base_time = compute_base_time()
@@ -266,11 +266,11 @@ async def main(api_url: str) -> None:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Seed TraceMind with sample data")
+    parser = argparse.ArgumentParser(description="Seed Watchpoint with sample data")
     parser.add_argument(
         "--api-url",
         default="http://localhost:8000",
-        help="TraceMind API base URL (default: http://localhost:8000)",
+        help="Watchpoint API base URL (default: http://localhost:8000)",
     )
     args = parser.parse_args()
     asyncio.run(main(args.api_url))

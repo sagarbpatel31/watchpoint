@@ -122,4 +122,12 @@ docker compose up --build
 
 ## License
 
-Proprietary. All rights reserved.
+[Apache License 2.0](LICENSE).
+
+Everything in this repository is Apache 2.0 — the collectors, the API, the rules
+engine, and the dashboard. Anything that runs on your robot is Apache-licensed
+without exception, so you can audit it before you deploy it.
+
+Commercial features (SSO, cross-fleet rollups, the managed offering) are licensed
+separately and live outside this tree. See [`docs/gtm/licensing.md`](docs/gtm/licensing.md)
+for the open-core boundary.

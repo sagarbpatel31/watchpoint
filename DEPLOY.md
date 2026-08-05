@@ -88,7 +88,7 @@ The frontend is already deployed at https://watchpoint.vercel.app.
 You only need to set one env var and redeploy.
 
 ```bash
-cd /Users/sagarpatel/Documents/Tracemind/apps/web
+cd apps/web
 
 # Add the production API URL (replace with your actual Render URL)
 vercel env add NEXT_PUBLIC_API_URL production

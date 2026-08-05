@@ -112,7 +112,7 @@ This matters, but it is still behind P1-P4.
 
 These are not the top production blockers, but they should be fixed soon:
 
-- Recreate stale checked-in `.venv` environments whose shebangs still reference the old `Tracemind` path
+- Recreate stale checked-in `.venv` environments whose shebangs still reference the old pre-rename repo path
 - Update README naming and clone instructions to `Watchpoint`
 - Populate `ros2_snapshot.json` instead of shipping a placeholder in replay bundles
 - Decide whether AI-layer ingest should stay public in demos or be secured alongside classic ingest
