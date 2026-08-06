@@ -3,21 +3,21 @@
 Tests run without a live database — we mock the DB session to return
 controlled metric/event fixtures and verify rule trigger logic directly.
 """
+
 from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from app.models.telemetry import EventLog, LogLevel, MetricPoint
 
-
 # ---------------------------------------------------------------------------
 # Helpers — build fake ORM objects
 # ---------------------------------------------------------------------------
+
 
 def _metric(name: str, value: float) -> MetricPoint:
     m = MagicMock(spec=MetricPoint)
@@ -68,6 +68,7 @@ def _mock_db(metrics: list[MetricPoint], events: list[EventLog]) -> AsyncMock:
 # Rule 1 — Resource contention
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_rule1_resource_contention_fires() -> None:
     metrics = [_metric("cpu_percent", 92.0), _metric("topic_rate_hz", 3.0)]
@@ -75,6 +76,7 @@ async def test_rule1_resource_contention_fires() -> None:
 
     with patch("app.services.analysis.generate_llm_summary", return_value="test summary"):
         from app.services.analysis import analyze_incident
+
         result = await analyze_incident(uuid.uuid4(), db, incident_title="CPU spike test")
 
     causes = {c["cause"] for c in result["probable_causes"]}
@@ -88,6 +90,7 @@ async def test_rule1_no_fire_when_cpu_low() -> None:
 
     with patch("app.services.analysis.generate_llm_summary", return_value="test summary"):
         from app.services.analysis import analyze_incident
+
         result = await analyze_incident(uuid.uuid4(), db)
 
     causes = {c["cause"] for c in result["probable_causes"]}
@@ -98,6 +101,7 @@ async def test_rule1_no_fire_when_cpu_low() -> None:
 # Rule 2 — Thermal throttling
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_rule2_thermal_throttling_fires() -> None:
     metrics = [_metric("gpu_temp_c", 80.0), _metric("inference_latency_ms", 150.0)]
@@ -105,6 +109,7 @@ async def test_rule2_thermal_throttling_fires() -> None:
 
     with patch("app.services.analysis.generate_llm_summary", return_value="test summary"):
         from app.services.analysis import analyze_incident
+
         result = await analyze_incident(uuid.uuid4(), db, incident_title="Thermal test")
 
     causes = {c["cause"] for c in result["probable_causes"]}
@@ -114,6 +119,7 @@ async def test_rule2_thermal_throttling_fires() -> None:
 # ---------------------------------------------------------------------------
 # Rule 3 — Process failure chain
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_rule3_process_failure_chain_fires() -> None:
@@ -125,6 +131,7 @@ async def test_rule3_process_failure_chain_fires() -> None:
 
     with patch("app.services.analysis.generate_llm_summary", return_value="test summary"):
         from app.services.analysis import analyze_incident
+
         result = await analyze_incident(uuid.uuid4(), db)
 
     causes = {c["cause"] for c in result["probable_causes"]}
@@ -134,6 +141,7 @@ async def test_rule3_process_failure_chain_fires() -> None:
 # ---------------------------------------------------------------------------
 # Rule 4 — Version regression
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_rule4_version_regression_fires() -> None:
@@ -145,6 +153,7 @@ async def test_rule4_version_regression_fires() -> None:
 
     with patch("app.services.analysis.generate_llm_summary", return_value="test summary"):
         from app.services.analysis import analyze_incident
+
         result = await analyze_incident(uuid.uuid4(), db)
 
     causes = {c["cause"] for c in result["probable_causes"]}
@@ -155,12 +164,14 @@ async def test_rule4_version_regression_fires() -> None:
 # Fallback — unknown cause when no rules fire
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_fallback_when_no_rules_match() -> None:
     db = _mock_db([], [])
 
     with patch("app.services.analysis.generate_llm_summary", return_value="test summary"):
         from app.services.analysis import analyze_incident
+
         result = await analyze_incident(uuid.uuid4(), db)
 
     causes = {c["cause"] for c in result["probable_causes"]}
@@ -172,6 +183,7 @@ async def test_fallback_when_no_rules_match() -> None:
 # LLM fallback — no API key
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_llm_fallback_without_api_key() -> None:
     """generate_llm_summary must return rules text when ANTHROPIC_API_KEY is empty."""
@@ -181,7 +193,11 @@ async def test_llm_fallback_without_api_key() -> None:
         mock_settings.anthropic_api_key = ""
         result = await generate_llm_summary(
             incident_title="test",
-            top_cause={"cause": "Resource contention", "description": "CPU too high", "confidence": 0.85},
+            top_cause={
+                "cause": "Resource contention",
+                "description": "CPU too high",
+                "confidence": 0.85,
+            },
             evidence_signals=["CPU at 92%"],
         )
 
@@ -192,16 +208,24 @@ async def test_llm_fallback_without_api_key() -> None:
 # Result structure
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_result_has_required_fields() -> None:
     db = _mock_db([], [])
 
     with patch("app.services.analysis.generate_llm_summary", return_value="summary text"):
         from app.services.analysis import analyze_incident
+
         result = await analyze_incident(uuid.uuid4(), db)
 
-    required = ["summary", "probable_causes", "evidence", "suggested_steps",
-                "metrics_analyzed", "events_analyzed"]
+    required = [
+        "summary",
+        "probable_causes",
+        "evidence",
+        "suggested_steps",
+        "metrics_analyzed",
+        "events_analyzed",
+    ]
     for field in required:
         assert field in result, f"Missing field: {field}"
 

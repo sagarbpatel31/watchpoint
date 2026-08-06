@@ -8,8 +8,13 @@ from app.database import get_db
 from app.models.device import Device
 from app.models.incident import Incident
 from app.models.workspace import Project
+from app.security import require_current_user
 
-router = APIRouter(prefix="/projects", tags=["projects"])
+router = APIRouter(
+    prefix="/projects",
+    tags=["projects"],
+    dependencies=[Depends(require_current_user)],
+)
 
 
 @router.get("/{project_id}")

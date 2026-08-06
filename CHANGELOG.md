@@ -5,6 +5,79 @@ Format: [Conventional Commits](https://www.conventionalcommits.org/).
 
 ---
 
+## [0.4.0] — API authentication and migration-first deploys (2026-08-06)
+
+### Security
+
+- **The API was almost entirely unauthenticated.** `GET /auth/me` was the only
+  route that consumed a JWT. `GET /incidents`, `GET /devices`,
+  `POST /devices/register`, `POST /devices/deployments`, `GET /projects/{id}`,
+  `GET /bundles/{id}`, every `/ingest/*` route, and `POST /seed/demo` all served
+  anonymous callers. Login issued valid tokens that nothing checked.
+  - All human-facing routes now require a JWT via router-level
+    `Depends(require_current_user)`.
+  - `health`, `auth/register`, and `auth/login` stay public by design.
+- **Device tokens for embedded agents** (`X-Device-Token`). Agents are headless
+  and long-lived, so they authenticate with a scoped credential rather than a
+  JWT. Stored as SHA-256 — deliberately not bcrypt, which is right for
+  low-entropy passwords but would put ~100ms on the ingest hot path for a
+  credential that is already 32 random bytes.
+  - A token may only write for the device it was issued to. A payload naming a
+    different device is rejected with 403 — otherwise one robot's credential
+    could corrupt another's baselines, which is exactly what AI-001 and AI-003
+    measure against.
+  - Decisions carry no `device_id`, so they are scoped through the inference
+    they reference.
+  - New: `POST /devices/{id}/tokens`, `GET /devices/{id}/tokens`,
+    `POST /devices/tokens/{id}/revoke` (soft revoke, preserves the audit trail).
+- **`POST /seed/demo` is gated** on `ENABLE_DEMO_SEED`, default off, and returns
+  404 rather than 403 so a production deployment does not advertise it.
+
+### Fixed
+
+- **Seeding is idempotent.** It used fixed primary keys with no upsert, so a
+  second call errored on duplicate keys against live data. It now deletes the
+  previous demo rows first, scoped strictly to the fixed demo IDs.
+- **Model/migration drift in `0001_initial`** (`0004_align_unique_indexes`).
+  `users.email` and `workspaces.slug` were created as a plain index plus a
+  separate unique constraint, while the models declare a single unique index.
+  Uniqueness was always enforced, so this was never a data-integrity bug — but
+  it left `alembic check` permanently red, which hides real drift. Now clean.
+
+### Changed
+
+- **Migration-first.** `alembic upgrade head` runs before uvicorn binds
+  (Dockerfile and docker-compose); `Base.metadata.create_all()` is gone from the
+  app lifespan. The two existing migrations had never actually been applied to
+  anything — `create_all` was doing the work.
+- `make lint-api` now covers `tests/` as well as `app/`.
+
+### Added
+
+- `.github/workflows/ci.yml` — the repo had no CI at all. Five parallel jobs:
+  api, migrations, model-collector, web, edge-agent. The migrations job runs
+  against a real Postgres and asserts `alembic check` is clean plus a full
+  downgrade/upgrade round-trip, enforcing the repo's own "Alembic before schema
+  changes" rule.
+- `apps/api/tests/conftest.py` — shared `mock_db`, `auth_client`,
+  `device_client`, `anon_client` fixtures (the suite previously had no conftest).
+- `test_auth_enforcement.py` — asserts every protected route 401s, and fails
+  when a route is added without being classified, so a new router cannot ship
+  unprotected by omission.
+- `test_device_tokens.py`, `test_seed_gating.py`.
+- API tests: 35 → 82.
+
+### Known breakage
+
+Collectors do not send `X-Device-Token` yet, so agent ingest returns 401 until
+they are wired (`model_collector/sender.py`, `edge-agent/internal/sender/http.go`,
+`ros2_collector/sender.py`, plus a configurable `project_id` for the Go agent).
+The demo path is unaffected — it goes through the seed endpoint, not the
+collectors — so the hosted demo and dashboard work fully. This is the next
+change.
+
+---
+
 ## [0.3.0] — Go-to-market foundation (2026-08-05)
 
 ### Changed

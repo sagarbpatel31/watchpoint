@@ -17,5 +17,7 @@ COPY . .
 ENV PORT=8000
 EXPOSE 8000
 
-# Production: no --reload, bind to $PORT, single worker for free tier memory
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1"]
+# Migrations run before the app binds — Alembic owns the schema, not metadata
+# create_all. Production: no --reload, bind to $PORT, single worker for free
+# tier memory.
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1"]

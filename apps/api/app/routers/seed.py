@@ -3,12 +3,15 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.database import get_db
-from app.models.ai_layer import Framework, Inference, ModelRun, OODSignal
+from app.models.ai_layer import Decision, Framework, Inference, ModelRun, OODSignal
 from app.models.device import Deployment, Device, DeviceStatus
+from app.models.device_token import DeviceToken
 from app.models.incident import Incident, IncidentStatus, Severity
 from app.models.telemetry import EventLog, LogLevel, MetricPoint
 from app.models.user import User
@@ -49,11 +52,46 @@ _OOD_INF_IDS = [
 ]
 
 
+async def _purge_demo_data(db: AsyncSession) -> None:
+    """Remove the previous demo rows so seeding is idempotent.
+
+    Scoped strictly to the fixed demo IDs declared above — this must never
+    resemble "wipe the database". Deletes run child-first to respect FKs.
+    """
+    inference_ids = select(Inference.id).where(Inference.incident_id.in_(INCIDENT_IDS))
+    await db.execute(delete(OODSignal).where(OODSignal.inference_id.in_(inference_ids)))
+    await db.execute(delete(Decision).where(Decision.inference_id.in_(inference_ids)))
+    await db.execute(delete(Inference).where(Inference.incident_id.in_(INCIDENT_IDS)))
+    await db.execute(delete(Inference).where(Inference.device_id.in_(DEVICE_IDS)))
+    await db.execute(delete(ModelRun).where(ModelRun.id.in_(MODEL_RUN_IDS)))
+    await db.execute(delete(EventLog).where(EventLog.device_id.in_(DEVICE_IDS)))
+    await db.execute(delete(MetricPoint).where(MetricPoint.device_id.in_(DEVICE_IDS)))
+    await db.execute(delete(Incident).where(Incident.id.in_(INCIDENT_IDS)))
+    await db.execute(delete(Deployment).where(Deployment.id.in_(DEPLOYMENT_IDS)))
+    await db.execute(delete(DeviceToken).where(DeviceToken.device_id.in_(DEVICE_IDS)))
+    await db.execute(delete(Device).where(Device.id.in_(DEVICE_IDS)))
+    await db.execute(delete(Project).where(Project.id == PROJECT_ID))
+    await db.execute(delete(Workspace).where(Workspace.id == WORKSPACE_ID))
+    await db.execute(delete(User).where(User.id == USER_ID))
+    await db.flush()
+
+
 @router.post("/demo")
 async def seed_demo_data(db: AsyncSession = Depends(get_db)):
-    """Seed the database with demo data for 3 devices and 3 incidents."""
+    """Seed the database with demo data for 3 devices and 3 incidents.
+
+    Gated on `enable_demo_seed`. Returns 404 rather than 403 when disabled so
+    the endpoint's existence isn't advertised on a production deployment.
+    """
+    if not settings.enable_demo_seed:
+        raise HTTPException(status_code=404, detail="Not Found")
+
     now = datetime.now(timezone.utc)
     base_time = now - timedelta(hours=1)
+
+    # Idempotent: re-seeding replaces the demo rows instead of colliding on
+    # their fixed primary keys.
+    await _purge_demo_data(db)
 
     # User
     user = User(

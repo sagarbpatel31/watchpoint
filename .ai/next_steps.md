@@ -1,83 +1,48 @@
 # Next Steps
 
-Last updated: 2026-05-31.
+Last updated: 2026-08-06.
 
-Priority order is fixed. Deployment remains first, but the Alembic item is no longer "initialize migrations" because that work already exists in the repo.
+**The priority order below was revised.** It previously put the production
+deploy first and security third. That was wrong for a specific, verifiable
+reason: `GET /auth/me` was the only authenticated route in the whole API, so
+deploying first would have published a fully open database. P2 and P3 are now
+done; P1 is unblocked and safe to run.
 
----
+## 🔴 Priority 1 (new) — Wire device tokens through the collectors
 
-## 🔴 Priority 1 — End-to-end production deploy
+Ingest now requires `X-Device-Token`. None of the collectors send it, so agent
+ingest returns 401 until this lands. **A design partner cannot send data before
+this is done.**
 
-Nothing is more important than proving the real hosted stack works.
+- `agents/model-collector/model_collector/sender.py` — thread an optional token through `send_model_run` / `send_inferences`
+- `agents/ros2-collector/ros2_collector/sender.py` — same
+- `agents/edge-agent/internal/sender/http.go` — add the header, and make `project_id` configurable instead of the hardcoded `demoProjectID`
 
-### Step A: Provision Supabase (user action)
-1. Create Supabase project `watchpoint`
-2. Copy the Postgres URI from Settings → Database → Connection string
-3. Provide that URI for Render `DATABASE_URL`
+The demo path (seeded data) is unaffected, so the hosted demo and dashboard keep
+working meanwhile.
 
-### Step B: Deploy API to Render (user action)
-1. Import `sagarbpatel31/watchpoint` as a Render Blueprint
-2. Confirm `apps/api/render.yaml` is used
-3. Set `DATABASE_URL`
-4. Optionally set `ANTHROPIC_API_KEY`
-5. Wait for deploy and record the exact Render URL
+## 🔴 Priority 2 — End-to-end production deploy
 
-### Step C: Wire Vercel to the real API (after Render URL exists)
-1. Set `NEXT_PUBLIC_API_URL` in Vercel to the Render URL
-2. Redeploy the frontend
-3. Confirm `CORS_ORIGINS` in `apps/api/render.yaml` matches the actual Vercel domain
-4. Verify frontend requests are hitting the hosted API
+Unchanged and still blocked on account provisioning (Supabase + Render). Now
+safe to run: the API authenticates, the container migrates before it binds, and
+`ENABLE_DEMO_SEED` defaults off. Steps are in `DEPLOY.md` (Step 4b covers token
+provisioning).
 
-### Step D: Seed and smoke test production
-1. `POST /api/v1/seed/demo`
-2. `GET /api/v1/health`
-3. Login to the hosted frontend with `demo@watchpoint.ai / demo123`
-4. Open dashboard, incident detail, and inference detail pages
+## ✅ Done — was P2 (migration-first)
 
-### P1 exit criteria
-- Render API URL is live and responds successfully
-- Vercel frontend points to that API URL
-- Production seed succeeds
-- Basic user flow works end-to-end
+`alembic upgrade head` runs before uvicorn in both the Dockerfile and
+docker-compose; `create_all` is gone from the app lifespan. CI enforces
+`alembic check` against a real Postgres on every PR.
 
----
+## ✅ Done — was P3 (secure ingest), widened to the whole API
 
-## 🟠 Priority 2 — Switch production workflow to migration-first
-
-Alembic is already present:
-- `apps/api/alembic/versions/0001_initial.py`
-- `apps/api/alembic/versions/0002_ai_layer.py`
-
-Remaining work:
-- Document and use `alembic upgrade head` for production bootstrapping
-- Decide whether to keep or remove `Base.metadata.create_all()` in `apps/api/app/main.py`
-- Ensure future schema changes land as migrations first, not model-only changes
-
-Do this immediately after the first confirmed production deploy.
+JWT on all human routes, device tokens on all agent routes, seed gated behind
+`ENABLE_DEMO_SEED`, and a regression test that fails when a new route is added
+without an auth decision.
 
 ---
 
-## 🟠 Priority 3 — Secure all ingest endpoints
-
-Files:
-- `apps/api/app/routers/ingest.py`
-- `apps/api/app/routers/ai_ingest.py`
-
-Current state:
-- Classic telemetry ingest is unauthenticated
-- AI-layer ingest is also unauthenticated
-
-Recommended fix:
-- Add device-scoped API tokens for edge/ROS2 collectors
-- Add a separate scoped token strategy for the model-collector
-- Accept token via header such as `X-Device-Token`
-- Store only hashed tokens server-side
-
-Do not use JWTs for embedded agents.
-
----
-
-## 🟡 Priority 4 — Replace edge-agent stubs with real telemetry
+## 🟡 Priority 3 — Replace edge-agent stubs with real telemetry
 
 Files:
 - `agents/edge-agent/internal/collector/system.go`
@@ -92,7 +57,7 @@ Do not deploy the current Go agent to real hardware expecting trustworthy RCA in
 
 ---
 
-## 🟡 Priority 5 — Harden frontend auth storage
+## 🟡 Priority 4 — Harden frontend auth storage
 
 File:
 - `apps/web/src/lib/auth.ts`
@@ -104,7 +69,7 @@ Recommended fix:
 - Move to `httpOnly`, `Secure`, `SameSite=Strict` cookies
 - Add a server-side relay or middleware pattern in Next.js as needed
 
-This matters, but it is still behind P1-P4.
+This matters, but it is still behind the priorities above.
 
 ---
 
@@ -113,6 +78,7 @@ This matters, but it is still behind P1-P4.
 These are not the top production blockers, but they should be fixed soon:
 
 - Recreate stale checked-in `.venv` environments whose shebangs still reference the old pre-rename repo path
-- Update README naming and clone instructions to `Watchpoint`
 - Populate `ros2_snapshot.json` instead of shipping a placeholder in replay bundles
-- Decide whether AI-layer ingest should stay public in demos or be secured alongside classic ingest
+- Scope queries by workspace. Auth is now enforced, but any authenticated user
+  still sees every workspace's data. Not reachable by an outsider on a
+  single-tenant self-hosted install; required before any hosted offering.

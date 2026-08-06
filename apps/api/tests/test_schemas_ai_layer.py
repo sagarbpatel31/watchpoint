@@ -1,4 +1,5 @@
 """Tests for AI layer Pydantic schemas — validation logic only, no DB."""
+
 from __future__ import annotations
 
 import uuid

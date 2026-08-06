@@ -1,4 +1,5 @@
 """Tests for the health endpoint and app startup."""
+
 from __future__ import annotations
 
 from fastapi.testclient import TestClient

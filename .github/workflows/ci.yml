@@ -1,0 +1,118 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+# A new push supersedes an in-flight run on the same ref.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  api:
+    name: api (lint + tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: apps/api/pyproject.toml
+      - name: Lint
+        run: make lint-api
+      - name: Tests
+        run: make test-api
+
+  migrations:
+    name: migrations (apply + drift check)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: watchpoint
+          POSTGRES_PASSWORD: watchpoint
+          POSTGRES_DB: watchpoint
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U watchpoint"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+asyncpg://watchpoint:watchpoint@localhost:5432/watchpoint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: apps/api/pyproject.toml
+      # Alembic owns the schema now that the app no longer runs create_all, so
+      # a migration that does not apply is a broken deploy, not a broken test.
+      - name: Apply migrations
+        working-directory: apps/api
+        run: uv run --extra dev alembic upgrade head
+      # Enforces the repo's own rule: schema changes land as migrations, not
+      # model-only edits. Fails when models and migrations disagree.
+      - name: Check for model drift
+        working-directory: apps/api
+        run: uv run --extra dev alembic check
+      - name: Verify downgrade path
+        working-directory: apps/api
+        run: |
+          uv run --extra dev alembic downgrade base
+          uv run --extra dev alembic upgrade head
+
+  model-collector:
+    name: model-collector (lint + tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: agents/model-collector/pyproject.toml
+      - name: Lint
+        run: make lint-model-collector
+      - name: Tests
+        run: make test-model-collector
+
+  web:
+    name: web (lint + typecheck + build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install
+        run: npm ci
+      # The Makefile resolves the web runner from PATH and falls back to npx,
+      # so these work on a runner with no bun installed.
+      - name: Lint
+        run: make lint-web
+      - name: Typecheck
+        run: make typecheck-web
+      - name: Build
+        run: make build-web
+
+  edge-agent:
+    name: edge-agent (vet + build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          # No go.sum: the agent is stdlib-only, so there is nothing to cache
+          # and pointing at a missing file fails the step.
+          cache: false
+      - name: Vet
+        working-directory: agents/edge-agent
+        run: go vet ./...
+      - name: Build
+        working-directory: agents/edge-agent
+        run: go build ./...

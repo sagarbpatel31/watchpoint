@@ -30,6 +30,7 @@ class Device(UUIDMixin, TimestampMixin, Base):
 
     project: Mapped["Project"] = relationship(back_populates="devices")  # noqa: F821
     deployments: Mapped[list["Deployment"]] = relationship(back_populates="device")
+    tokens: Mapped[list["DeviceToken"]] = relationship(back_populates="device")  # noqa: F821
     incidents: Mapped[list["Incident"]] = relationship(back_populates="device")  # noqa: F821
     event_logs: Mapped[list["EventLog"]] = relationship(back_populates="device")  # noqa: F821
     metric_points: Mapped[list["MetricPoint"]] = relationship(back_populates="device")  # noqa: F821

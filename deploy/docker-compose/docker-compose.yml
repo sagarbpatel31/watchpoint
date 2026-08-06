@@ -25,13 +25,16 @@ services:
       DATABASE_URL: postgresql+asyncpg://watchpoint:watchpoint@postgres:5432/watchpoint
       CORS_ORIGINS: http://localhost:3000,http://localhost:3001
       STORAGE_PATH: /app/storage
+      # Local dev only — POST /seed/demo returns 404 unless this is true.
+      ENABLE_DEMO_SEED: "true"
     depends_on:
       postgres:
         condition: service_healthy
     volumes:
       - ../../apps/api:/app
       - api-storage:/app/storage
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    # Alembic owns the schema; the app no longer creates tables at startup.
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
 
   web:
     build:

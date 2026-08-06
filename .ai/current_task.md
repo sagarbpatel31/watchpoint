@@ -1,10 +1,46 @@
 # Current Task
 
-Last updated: 2026-08-05.
+Last updated: 2026-08-06.
 
 ## Active branch
 
 `claude/project-startup-planning-ub8jwb`.
+
+---
+
+## 2026-08-06 — P2 + P3 complete (and P3 was bigger than recorded)
+
+**P3 was scoped wrong in this file.** It described the exposure as limited to
+`/ingest/*`. In fact `GET /auth/me` was the only authenticated route in the
+entire API — incidents, devices, projects, replay bundles, and the seed endpoint
+all served anonymous callers. The documented order (deploy first, secure later)
+would have published a database anyone could read, write, and re-seed.
+
+| Priority | Status |
+|---|---|
+| **P2** — migration-first | ✅ done. `alembic upgrade head` runs before uvicorn; `create_all` removed from lifespan |
+| **P3** — secure ingest | ✅ done, widened to the whole API. JWT on human routes, `X-Device-Token` on agent routes |
+
+**Verified against a live Postgres, not just mocks:** all four migrations apply
+from scratch, `alembic check` reports no drift, full downgrade-to-base and
+re-upgrade round-trips cleanly, anonymous access is 401 across the board, the
+cross-device token attack returns 403, revocation takes effect immediately, and
+seeding twice leaves row counts stable.
+
+**Also fixed:** `0001_initial` had drifted from the models on `users.email` and
+`workspaces.slug` (plain index + separate unique constraint vs. a single unique
+index). Uniqueness was always enforced, so no data was at risk, but it left
+`alembic check` permanently red. `0004_align_unique_indexes` resolves it.
+
+**CI now exists** (`.github/workflows/ci.yml`) — there was none. The migrations
+job runs against a real Postgres and enforces the repo's own "Alembic before
+schema changes" rule on every PR.
+
+**Immediate next block — collectors are broken until wired.** Ingest now
+requires `X-Device-Token`, which none of the three collectors send:
+`model_collector/sender.py`, `edge-agent/internal/sender/http.go` (also still
+hardcodes `demoProjectID`), `ros2_collector/sender.py`. The demo path is
+unaffected. A design partner cannot send data until this lands.
 
 ---
 

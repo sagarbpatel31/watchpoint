@@ -46,7 +46,7 @@ lint: lint-api lint-model-collector lint-web
 
 lint-api:
 	@echo "▶ lint api"
-	cd apps/api && $(UV) run --extra dev ruff check app/ && $(UV) run --extra dev ruff format --check app/
+	cd apps/api && $(UV) run --extra dev ruff check app/ tests/ && $(UV) run --extra dev ruff format --check app/ tests/
 
 lint-model-collector:
 	@echo "▶ lint model-collector"

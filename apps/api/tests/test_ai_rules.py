@@ -12,7 +12,6 @@ import pytest
 
 from app.models.ai_layer import Inference, OODSignal
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -207,7 +206,8 @@ async def test_ai003_no_fire_below_threshold() -> None:
     from app.rca.ai_rules.rule_ai003 import RuleAI003
 
     infs = [_inference(latency_ms=20.0) for _ in range(6)] + [
-        _inference(latency_ms=35.0) for _ in range(6)  # 1.75× — under threshold
+        _inference(latency_ms=35.0)
+        for _ in range(6)  # 1.75× — under threshold
     ]
     db = _db_inferences(infs)
     result = await RuleAI003().evaluate(uuid.uuid4(), db)
