@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Iterator
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -23,8 +24,17 @@ STUB_DEVICE_ID = uuid.UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
 OTHER_DEVICE_ID = uuid.UUID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
 
 
-def make_db_override(rows: list | None = None):
-    """Build a get_db override yielding a mock session that returns `rows`."""
+def make_db_override(
+    rows: list | None = None,
+    on_add=None,
+    on_add_all=None,
+):
+    """Build a get_db override yielding a mock session that returns `rows`.
+
+    `on_add` / `on_add_all` receive the ORM objects the route persisted, so a
+    test can assert on what was actually written rather than only on the status
+    code — which is how the device attribution is checked.
+    """
     rows = rows if rows is not None else []
 
     async def override():
@@ -37,8 +47,19 @@ def make_db_override(rows: list | None = None):
         db.execute = AsyncMock(return_value=result)
         # add/add_all are synchronous on a real AsyncSession; leaving them as
         # AsyncMock returns un-awaited coroutines and emits RuntimeWarnings.
-        db.add = MagicMock()
-        db.add_all = MagicMock()
+        db.add = MagicMock(side_effect=on_add)
+        db.add_all = MagicMock(side_effect=on_add_all)
+
+        async def refresh(obj, *_args, **_kwargs):
+            # Postgres fills these from server defaults on flush; without a real
+            # session they stay None and response validation fails on fields the
+            # route never sets itself.
+            now = datetime.now(timezone.utc)
+            for attr in ("created_at", "updated_at"):
+                if getattr(obj, attr, None) is None:
+                    setattr(obj, attr, now)
+
+        db.refresh = AsyncMock(side_effect=refresh)
         yield db
 
     return override
@@ -62,10 +83,13 @@ def stub_device(device_id: uuid.UUID = STUB_DEVICE_ID) -> MagicMock:
 
 @pytest.fixture
 def mock_db():
-    """Callable that installs a get_db override returning the given rows."""
+    """Callable that installs a get_db override returning the given rows.
 
-    def _install(rows: list | None = None) -> None:
-        app.dependency_overrides[get_db] = make_db_override(rows)
+    Pass `on_add` / `on_add_all` to capture what the route persisted.
+    """
+
+    def _install(rows: list | None = None, on_add=None, on_add_all=None) -> None:
+        app.dependency_overrides[get_db] = make_db_override(rows, on_add, on_add_all)
 
     yield _install
     app.dependency_overrides.clear()

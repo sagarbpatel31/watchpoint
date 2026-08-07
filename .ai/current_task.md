@@ -1,10 +1,45 @@
 # Current Task
 
-Last updated: 2026-08-06.
+Last updated: 2026-08-07.
 
 ## Active branch
 
 `claude/project-startup-planning-ub8jwb`.
+
+---
+
+## 2026-08-07 — Collectors deliver data for the first time
+
+Wiring `X-Device-Token` through the three collectors revealed that **none of
+them had ever ingested successfully**. The missing header was the newest fault,
+not the only one:
+
+| Fault | Effect |
+|---|---|
+| `Collector.flush()` never called its sender | model-collector transmitted nothing, ever |
+| ros2 `send_logs` posted `{"events"}` to `/ingest/logs` | 422 every cycle |
+| ros2 sent `labels` / `metadata`, schemas declare `*_json` | **200 OK with the data silently discarded** |
+| `timestamp_ns` used `time.monotonic_ns()` | inference frames could not be correlated with system telemetry — the core product claim |
+| agents sent hostnames / `"unknown-device"` as `device_id` | 422, schema wants a UUID |
+| auto-generated capture id sent as `incident_id` (an FK) | 500 |
+
+The `labels` one is the instructive failure: ingest returned success and stored
+useless rows. That is why ingest schemas now set `extra: forbid` — a field-name
+mistake is a 422 at integration time rather than missing data found weeks later.
+
+**Device identity now comes from the token.** `device_id` is optional on every
+ingest schema and filled from the authenticated device, so an agent needs only a
+backend URL and a credential. A payload that does name a device is still checked
+(403 on mismatch).
+
+**Verified against a live Postgres and a running API**, because mocked tests
+cannot catch a wrong payload shape — which is exactly how these survived. All
+three collectors ingest; rows carry the token's device; `topic_rate_hz` rows
+carry `labels_json->>'topic'`; timestamps are wall-clock.
+
+**Next:** the Go agent's metrics are still simulated (`simulateCPU()`, hardcoded
+16GB/500GB, network counters `0`). It now delivers reliably — but delivers
+fiction. That is the top remaining agent task.
 
 ---
 

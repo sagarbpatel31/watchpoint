@@ -13,8 +13,9 @@ DOCKER ?= $(shell command -v docker 2>/dev/null || echo /Applications/Docker.app
 # neither bun nor a global next).
 WEB_RUNNER ?= $(shell command -v bun >/dev/null 2>&1 && echo "$(BUN) x" || echo "npx")
 
-.PHONY: dev test test-api test-model-collector lint lint-api lint-model-collector \
-        lint-web typecheck-web build-web seed clean check tools
+.PHONY: dev test test-api test-model-collector test-ros2-collector lint lint-api \
+        lint-model-collector lint-ros2-collector lint-web typecheck-web build-web \
+        seed clean check tools
 
 # ── Tool check ─────────────────────────────────────────────────────────────
 
@@ -30,7 +31,7 @@ dev:
 
 # ── Tests ──────────────────────────────────────────────────────────────────
 
-test: test-api test-model-collector
+test: test-api test-model-collector test-ros2-collector
 
 test-api:
 	@echo "▶ api tests"
@@ -40,9 +41,13 @@ test-model-collector:
 	@echo "▶ model-collector tests"
 	cd agents/model-collector && $(UV) run --extra dev pytest -q
 
+test-ros2-collector:
+	@echo "▶ ros2-collector tests"
+	cd agents/ros2-collector && $(UV) run --extra dev pytest -q
+
 # ── Lint ───────────────────────────────────────────────────────────────────
 
-lint: lint-api lint-model-collector lint-web
+lint: lint-api lint-model-collector lint-ros2-collector lint-web
 
 lint-api:
 	@echo "▶ lint api"
@@ -50,7 +55,11 @@ lint-api:
 
 lint-model-collector:
 	@echo "▶ lint model-collector"
-	cd agents/model-collector && $(UV) run --extra dev ruff check model_collector/ && $(UV) run --extra dev ruff format --check model_collector/
+	cd agents/model-collector && $(UV) run --extra dev ruff check model_collector/ tests/ && $(UV) run --extra dev ruff format --check model_collector/ tests/
+
+lint-ros2-collector:
+	@echo "▶ lint ros2-collector"
+	cd agents/ros2-collector && $(UV) run --extra dev ruff check ros2_collector/ tests/ && $(UV) run --extra dev ruff format --check ros2_collector/ tests/
 
 lint-web:
 	@echo "▶ lint web"

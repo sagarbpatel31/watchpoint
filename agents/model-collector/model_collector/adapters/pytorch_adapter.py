@@ -121,7 +121,11 @@ def _capture_frame(
     """
     import torch
 
-    ts_ns = time.monotonic_ns()
+    # Wall clock, not time.monotonic_ns(): these timestamps are joined against
+    # system telemetry and ROS 2 topic health on one incident timeline, and a
+    # monotonic clock has an arbitrary epoch that cannot be correlated with
+    # anything else.
+    ts_ns = time.time_ns()
     inference_id = str(uuid.uuid4())
 
     frame: dict[str, Any] = {

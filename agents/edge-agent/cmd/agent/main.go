@@ -18,17 +18,16 @@ import (
 func main() {
 	cfg := parseFlags()
 
-	log.Printf("Watchpoint edge-agent starting (device=%s, interval=%s, api=%s)",
-		cfg.DeviceID, cfg.CollectionInterval, cfg.APIURL)
+	log.Printf("Watchpoint edge-agent starting (name=%s, interval=%s, api=%s)",
+		cfg.DeviceName, cfg.CollectionInterval, cfg.APIURL)
 
-	client := sender.NewClient(cfg.APIURL, cfg.DeviceID, cfg.DeviceName)
+	client := sender.NewClient(cfg.APIURL, cfg.Token)
 
-	// Register device on startup.
-	if err := client.RegisterDevice(); err != nil {
-		log.Printf("WARNING: device registration failed: %v (will continue anyway)", err)
-	} else {
-		log.Println("Device registered successfully")
-	}
+	// Device provisioning is an operator action: create the device and mint its
+	// token through the API, then configure this agent with the token. The
+	// agent no longer self-registers — /devices/register requires an operator
+	// JWT, and self-registration is how every real device ended up in the demo
+	// project.
 
 	// Start health endpoint.
 	go serveHealth()
@@ -60,25 +59,29 @@ func main() {
 
 func parseFlags() config.Config {
 	apiURL := flag.String("api-url", "http://localhost:8000", "Watchpoint API base URL")
-	deviceID := flag.String("device-id", "", "Unique device identifier")
-	deviceName := flag.String("device-name", "", "Human-readable device name")
+	token := flag.String("token", os.Getenv("WP_DEVICE_TOKEN"),
+		"Device token for ingest (default: $WP_DEVICE_TOKEN). Mint one with "+
+			"POST /api/v1/devices/{device_id}/tokens")
+	deviceName := flag.String("device-name", "", "Human-readable device name, used in logs only")
 	interval := flag.Duration("interval", 5*time.Second, "Metrics collection interval")
 	flag.Parse()
 
-	if *deviceID == "" {
+	if *token == "" {
+		log.Fatal("no device token: pass -token or set WP_DEVICE_TOKEN. " +
+			"Mint one with POST /api/v1/devices/{device_id}/tokens")
+	}
+
+	if *deviceName == "" {
 		hostname, err := os.Hostname()
 		if err != nil {
 			hostname = "unknown"
 		}
-		*deviceID = hostname
-	}
-	if *deviceName == "" {
-		*deviceName = *deviceID
+		*deviceName = hostname
 	}
 
 	return config.Config{
 		APIURL:             *apiURL,
-		DeviceID:           *deviceID,
+		Token:              *token,
 		DeviceName:         *deviceName,
 		CollectionInterval: *interval,
 	}

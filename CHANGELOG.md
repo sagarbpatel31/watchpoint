@@ -5,6 +5,82 @@ Format: [Conventional Commits](https://www.conventionalcommits.org/).
 
 ---
 
+## [0.5.0] — The collectors actually deliver data (2026-08-07)
+
+The previous release put device tokens on ingest and knowingly left the
+collectors unable to authenticate. Wiring the header through turned up that
+**none of the three had ever successfully ingested** — the token was the newest
+of several independent faults, not the only one.
+
+### Fixed
+
+- **`Collector.flush()` never transmitted anything.** It wrote msgpack to disk
+  and returned; `send_model_run` and `send_inferences` had zero callers. It now
+  uploads after the local write — disk first, because a backend that is
+  unreachable during an incident is exactly when the capture matters. Upload
+  failure is logged and swallowed: this runs inside the inference process, and
+  taking down a robot's perception stack to report a telemetry error is worse
+  than losing the telemetry.
+- **ros2-collector posted the wrong envelope.** `send_logs` sent
+  `{"events": [...]}` to `/ingest/logs`, which declares `logs` — a 422 on every
+  cycle.
+- **ros2-collector silently lost every topic label.** It sent `labels` and
+  `metadata` where the schemas declare `labels_json` and `metadata_json`.
+  Pydantic ignored the unknown keys, so ingest returned 200 and stored
+  `topic_rate_hz` points with no record of *which topic* degraded. This is the
+  one worth reading twice: it failed with a success status.
+- **Inference timestamps used `time.monotonic_ns()`** — an arbitrary epoch that
+  cannot be correlated with anything. Model state could never line up with
+  system telemetry on the incident timeline, which is the product's core claim.
+  Now `time.time_ns()`.
+- **Auto-generated capture IDs were sent as `incident_id`**, a foreign key, so
+  any capture not tied to a known incident failed with an FK violation. The
+  local capture directory name and the incident reference are now separate.
+- **An unknown `incident_id` returned 500.** Now 404, so a client can tell a bad
+  reference from a server fault.
+- Seeded `topic_rate_hz` metrics had no `labels_json` either, so the demo showed
+  anonymous topic rates while its incident titles named specific topics.
+
+### Changed
+
+- **Device identity is derived from the token.** `device_id` is now optional on
+  every ingest schema and filled from the authenticated device. Agents sent
+  identifiers the API could never accept — the Go agent its hostname, the model
+  collector the literal `"unknown-device"` — because they have no reliable way
+  to know their own UUID. An agent now needs a backend URL and a token, nothing
+  else. A payload that *does* name a device is still checked, so cross-device
+  protection is unchanged.
+- **Ingest schemas reject unknown fields** (`extra: forbid`). The `labels` bug
+  was invisible precisely because extras were ignored; a field-name mistake is
+  now a 422 at integration time instead of missing data found weeks later.
+- edge-agent takes `-token` / `WP_DEVICE_TOKEN` and exits with a clear message
+  without one. `demoProjectID` and agent self-registration are gone — that
+  hardcoded constant put every real device in the demo project.
+- ros2-collector takes `--token` / `WP_DEVICE_TOKEN` in place of the required
+  `--device-id`, and sends explicit ISO-8601 UTC timestamps.
+
+### Added
+
+- `agents/ros2-collector/tests/` — the package had no tests. Asserts the wire
+  format directly, which is the only way to catch a silent-drop bug without a
+  live backend.
+- model-collector flush/send tests; API tests for token attribution, foreign
+  `device_id`, unknown fields, and the unknown-incident 404.
+- CI job for ros2-collector; `make test-ros2-collector` / `lint-ros2-collector`.
+- Collector tests are now linted alongside their source.
+- Tests: 119 → 130.
+
+### Verified live
+
+Against a real Postgres and a running API, not mocks — the payload-shape bugs
+above are invisible to mocked tests. All three collectors ingest successfully;
+metrics land attributed to the token's device rather than a hostname;
+`topic_rate_hz` rows carry `labels_json->>'topic'`; inference timestamps are
+wall-clock. Negative paths confirmed: no token 401, revoked token 401, foreign
+`device_id` 403, unknown field 422, unknown incident 404.
+
+---
+
 ## [0.4.0] — API authentication and migration-first deploys (2026-08-06)
 
 ### Security

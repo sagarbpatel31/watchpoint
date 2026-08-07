@@ -177,9 +177,26 @@ curl -X POST $API/api/v1/devices/tokens/<token-id>/revoke \
   -H "Authorization: Bearer $TOKEN"
 ```
 
-> **Collectors do not send this header yet.** Wiring `X-Device-Token` through
-> the edge agent, ROS 2 collector, and model-collector is the next change. Until
-> then the demo path (seeded data) works fully, but agents cannot ingest.
+Configure the agent with the token and the API URL — nothing else. The device it
+reports as is resolved from the credential:
+
+```bash
+# Go edge agent
+./edge-agent -api-url $API -token wp_...          # or export WP_DEVICE_TOKEN
+
+# ROS 2 collector
+python -m ros2_collector.main --api-url $API --token wp_...
+
+# model-collector (in your inference process)
+export WP_BACKEND_URL=$API WP_DEVICE_TOKEN=wp_...
+```
+
+> **Re-seeding revokes demo tokens.** `POST /seed/demo` deletes and recreates the
+> demo devices, which cascades to their tokens. Mint a new one after any reseed.
+
+> **The Go agent's system metrics are still simulated** — `simulateCPU()`, a
+> hardcoded 16GB/500GB, and zeroed network counters. It delivers reliably now,
+> but do not present those numbers to anyone as measurements.
 
 ---
 

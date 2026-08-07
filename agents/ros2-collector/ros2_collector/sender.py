@@ -20,12 +20,23 @@ class WatchpointSender:
         self,
         api_url: str = "http://localhost:8000",
         timeout: float = DEFAULT_TIMEOUT,
+        token: str | None = None,
     ) -> None:
         self._api_url = api_url.rstrip("/")
+        headers = {"Content-Type": "application/json"}
+        if token:
+            # Ingest is device-token authenticated; the backend resolves which
+            # device a batch belongs to from this, so no device_id is sent.
+            headers["X-Device-Token"] = token
+        else:
+            logger.warning(
+                "No device token configured — ingest will be rejected with 401. "
+                "Pass --token or set WP_DEVICE_TOKEN."
+            )
         self._client = httpx.AsyncClient(
             base_url=self._api_url,
             timeout=timeout,
-            headers={"Content-Type": "application/json"},
+            headers=headers,
         )
         logger.info("Initialized sender targeting %s", self._api_url)
 
@@ -72,6 +83,10 @@ class WatchpointSender:
     async def send_logs(self, events: list[dict[str, Any]]) -> bool:
         """Send event log entries to the ingest endpoint.
 
+        The envelope key is `logs`, matching LogBatchIngest. It previously sent
+        `events`, which /ingest/logs rejects with a 422 — /ingest/events is the
+        route that takes that key.
+
         Returns True on success, False on failure.
         """
         if not events:
@@ -81,7 +96,7 @@ class WatchpointSender:
             try:
                 response = await self._client.post(
                     "/api/v1/ingest/logs",
-                    json={"events": events},
+                    json={"logs": events},
                 )
                 response.raise_for_status()
                 logger.debug(
@@ -109,22 +124,9 @@ class WatchpointSender:
         logger.error("Failed to send logs after %d attempts", MAX_RETRIES)
         return False
 
-    async def register_device(self, device_info: dict[str, Any]) -> bool:
-        """Register or update this device with the API.
-
-        Returns True on success, False on failure.
-        """
-        try:
-            response = await self._client.post(
-                "/api/v1/devices/register",
-                json=device_info,
-            )
-            response.raise_for_status()
-            logger.info("Device registered successfully")
-            return True
-        except (httpx.HTTPStatusError, httpx.RequestError) as exc:
-            logger.error("Failed to register device: %s", exc)
-            return False
+    # Device registration is no longer an agent concern: /devices/register now
+    # requires an operator JWT. An operator creates the device, mints a token,
+    # and configures the agent with it.
 
     async def close(self) -> None:
         """Close the HTTP client."""

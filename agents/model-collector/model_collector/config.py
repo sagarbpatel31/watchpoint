@@ -15,12 +15,21 @@ class CollectorConfig:
     """
 
     # Identity
+    #
+    # A local label only — used in logs and the on-disk capture. It is never
+    # sent to the backend: the device a batch belongs to is resolved server-side
+    # from the token, so an agent does not need to know its own UUID.
     device_id: str = field(default_factory=lambda: os.environ.get("WP_DEVICE_ID", "unknown-device"))
 
     # Backend
     backend_url: str = field(
         default_factory=lambda: os.environ.get("WP_BACKEND_URL", "http://localhost:8000")
     )
+
+    # Credential for the ingest endpoints, sent as the X-Device-Token header.
+    # Mint one with POST /api/v1/devices/{device_id}/tokens. Without it the
+    # collector still captures and writes to disk, but does not transmit.
+    device_token: str = field(default_factory=lambda: os.environ.get("WP_DEVICE_TOKEN", ""))
 
     # Ring buffer — how many inference frames to keep in memory before oldest are dropped
     ring_buffer_size: int = field(

@@ -8,22 +8,21 @@ reason: `GET /auth/me` was the only authenticated route in the whole API, so
 deploying first would have published a fully open database. P2 and P3 are now
 done; P1 is unblocked and safe to run.
 
-## 🔴 Priority 1 (new) — Wire device tokens through the collectors
+## ✅ Done — was P1 (wire device tokens through the collectors)
 
-Ingest now requires `X-Device-Token`. None of the collectors send it, so agent
-ingest returns 401 until this lands. **A design partner cannot send data before
-this is done.**
+All three collectors authenticate and deliver, verified against a live API.
+Scope turned out to be larger than "add a header": none of them had ever
+ingested successfully. `Collector.flush()` never called its sender at all, the
+ros2 collector posted the wrong envelope and silently dropped every topic label,
+and inference timestamps used a monotonic clock that could not be correlated
+with anything. See CHANGELOG 0.5.0.
 
-- `agents/model-collector/model_collector/sender.py` — thread an optional token through `send_model_run` / `send_inferences`
-- `agents/ros2-collector/ros2_collector/sender.py` — same
-- `agents/edge-agent/internal/sender/http.go` — add the header, and make `project_id` configurable instead of the hardcoded `demoProjectID`
+Device identity now comes from the token, so an agent needs only a backend URL
+and a credential.
 
-The demo path (seeded data) is unaffected, so the hosted demo and dashboard keep
-working meanwhile.
+## 🔴 Priority 1 — End-to-end production deploy
 
-## 🔴 Priority 2 — End-to-end production deploy
-
-Unchanged and still blocked on account provisioning (Supabase + Render). Now
+Still blocked on account provisioning (Supabase + Render). Now
 safe to run: the API authenticates, the container migrates before it binds, and
 `ENABLE_DEMO_SEED` defaults off. Steps are in `DEPLOY.md` (Step 4b covers token
 provisioning).
@@ -42,22 +41,26 @@ without an auth decision.
 
 ---
 
-## 🟡 Priority 3 — Replace edge-agent stubs with real telemetry
+## 🟡 Priority 2 — Replace edge-agent stubs with real telemetry
 
-Files:
+File:
 - `agents/edge-agent/internal/collector/system.go`
-- `agents/edge-agent/internal/sender/http.go`
 
 Required changes:
-- Replace simulated CPU/disk/network with real collection
-- Make `project_id` configurable instead of hard-coded
-- Validate behavior on Linux/Jetson target environment
+- Replace `simulateCPU()` and the hardcoded 16GB/500GB with real `/proc` reads
+- Network counters are still `0 // placeholder`
+- Validate behaviour on a Linux/Jetson target
 
-Do not deploy the current Go agent to real hardware expecting trustworthy RCA inputs.
+The agent now authenticates and delivers correctly — but the numbers it delivers
+are invented. Do not put it on real hardware and expect trustworthy RCA inputs,
+and do not show a design partner these values as if they were measurements.
+
+(`project_id` is no longer relevant here: the device is resolved from the token,
+and the hardcoded `demoProjectID` has been removed.)
 
 ---
 
-## 🟡 Priority 4 — Harden frontend auth storage
+## 🟡 Priority 3 — Harden frontend auth storage
 
 File:
 - `apps/web/src/lib/auth.ts`

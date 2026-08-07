@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.ai_layer import Decision, Inference, ModelRun
 from app.models.device import Device
+from app.models.incident import Incident
 from app.schemas.ai_layer import (
     AttentionResponse,
     DecisionBatchCreate,
@@ -62,7 +63,7 @@ async def create_model_run(
     assert_device_matches(device, payload.device_id)
     run = ModelRun(
         id=payload.id or uuid.uuid4(),
-        device_id=payload.device_id,
+        device_id=payload.device_id or device.id,
         framework=payload.framework,  # type: ignore[arg-type]
         model_name=payload.model_name,
         weights_hash=payload.weights_hash,
@@ -95,6 +96,19 @@ async def ingest_inferences(
     db: AsyncSession = Depends(get_db),
     device: Device = Depends(require_device_token),
 ) -> IngestResponse:
+    # incident_id is a foreign key. An agent sending a stale or unknown one used
+    # to surface as a 500 from the FK violation; answer 404 instead so the
+    # client can tell a bad reference from a server fault.
+    referenced_incidents = {i.incident_id for i in payload.inferences if i.incident_id}
+    if referenced_incidents:
+        known = await db.execute(select(Incident.id).where(Incident.id.in_(referenced_incidents)))
+        missing = referenced_incidents - {row.id for row in known}
+        if missing:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Unknown incident_id {sorted(str(m) for m in missing)[0]}",
+            )
+
     rows: list[Inference] = []
     for item in payload.inferences:
         assert_device_matches(device, item.device_id)
@@ -102,7 +116,7 @@ async def ingest_inferences(
             Inference(
                 id=item.inference_id or uuid.uuid4(),
                 model_run_id=item.model_run_id,
-                device_id=item.device_id,
+                device_id=item.device_id or device.id,
                 incident_id=item.incident_id,
                 timestamp_ns=item.timestamp_ns,
                 input_hash=item.input_hash,

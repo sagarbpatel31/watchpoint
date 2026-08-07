@@ -199,6 +199,9 @@ async def seed_demo_data(db: AsyncSession = Depends(get_db)):
 
     random.seed(42)
 
+    # The topic each incident's rate metric refers to. Without this label a
+    # topic_rate_hz point records that *a* topic degraded but not which one.
+    topic = "/cmd_vel"
     for sec in range(90):
         ts = base_time + timedelta(seconds=sec)
         # CPU rises from 45% to 98%
@@ -229,6 +232,7 @@ async def seed_demo_data(db: AsyncSession = Depends(get_db)):
                     metric_name=name,
                     value=round(value, 2),
                     unit=unit,
+                    labels_json={"topic": topic} if name == "topic_rate_hz" else None,
                 )
             )
 
@@ -277,6 +281,7 @@ async def seed_demo_data(db: AsyncSession = Depends(get_db)):
     db.add(incident2)
 
     t2_base = base_time + timedelta(minutes=15)
+    topic = "/camera/image_raw"
     for sec in range(120):
         ts = t2_base + timedelta(seconds=sec)
         gpu_temp = 65 + (27 * (sec / 120) ** 1.2) + random.uniform(-1, 1)
@@ -298,6 +303,7 @@ async def seed_demo_data(db: AsyncSession = Depends(get_db)):
                     metric_name=name,
                     value=round(value, 2),
                     unit=unit,
+                    labels_json={"topic": topic} if name == "topic_rate_hz" else None,
                 )
             )
 
@@ -341,6 +347,7 @@ async def seed_demo_data(db: AsyncSession = Depends(get_db)):
     db.add(incident3)
 
     t3_base = base_time + timedelta(minutes=30)
+    topic = "/cmd_vel"
     for sec in range(60):
         ts = t3_base + timedelta(seconds=sec)
         cpu = 40 + random.uniform(-5, 10)
@@ -360,6 +367,7 @@ async def seed_demo_data(db: AsyncSession = Depends(get_db)):
                     metric_name=name,
                     value=round(value, 2),
                     unit=unit,
+                    labels_json={"topic": topic} if name == "topic_rate_hz" else None,
                 )
             )
 

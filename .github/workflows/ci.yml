@@ -79,6 +79,20 @@ jobs:
       - name: Tests
         run: make test-model-collector
 
+  ros2-collector:
+    name: ros2-collector (lint + tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: agents/ros2-collector/pyproject.toml
+      - name: Lint
+        run: make lint-ros2-collector
+      - name: Tests
+        run: make test-ros2-collector
+
   web:
     name: web (lint + typecheck + build)
     runs-on: ubuntu-latest
