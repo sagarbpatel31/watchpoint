@@ -8,14 +8,15 @@
 UV     ?= $(shell command -v uv     2>/dev/null || echo $(HOME)/.local/bin/uv)
 BUN    ?= $(shell command -v bun    2>/dev/null || echo $(HOME)/.bun/bin/bun)
 DOCKER ?= $(shell command -v docker 2>/dev/null || echo /Applications/Docker.app/Contents/Resources/bin/docker)
+GO     ?= $(shell command -v go     2>/dev/null || echo /usr/local/go/bin/go)
 
 # Web tasks run through bun when present, npx otherwise (CI images often have
 # neither bun nor a global next).
 WEB_RUNNER ?= $(shell command -v bun >/dev/null 2>&1 && echo "$(BUN) x" || echo "npx")
 
-.PHONY: dev test test-api test-model-collector test-ros2-collector lint lint-api \
-        lint-model-collector lint-ros2-collector lint-web typecheck-web build-web \
-        seed clean check tools
+.PHONY: dev test test-api test-model-collector test-ros2-collector test-edge-agent \
+        lint lint-api lint-model-collector lint-ros2-collector lint-web lint-edge-agent \
+        typecheck-web build-web build-edge-agent seed clean check tools
 
 # ── Tool check ─────────────────────────────────────────────────────────────
 
@@ -31,7 +32,7 @@ dev:
 
 # ── Tests ──────────────────────────────────────────────────────────────────
 
-test: test-api test-model-collector test-ros2-collector
+test: test-api test-model-collector test-ros2-collector test-edge-agent
 
 test-api:
 	@echo "▶ api tests"
@@ -45,9 +46,13 @@ test-ros2-collector:
 	@echo "▶ ros2-collector tests"
 	cd agents/ros2-collector && $(UV) run --extra dev pytest -q
 
+test-edge-agent:
+	@echo "▶ edge-agent tests"
+	cd agents/edge-agent && $(GO) test ./...
+
 # ── Lint ───────────────────────────────────────────────────────────────────
 
-lint: lint-api lint-model-collector lint-ros2-collector lint-web
+lint: lint-api lint-model-collector lint-ros2-collector lint-web lint-edge-agent
 
 lint-api:
 	@echo "▶ lint api"
@@ -65,6 +70,14 @@ lint-web:
 	@echo "▶ lint web"
 	cd apps/web && $(WEB_RUNNER) eslint --max-warnings 0
 
+lint-edge-agent:
+	@echo "▶ lint edge-agent"
+	@cd agents/edge-agent && unformatted="$$($(GO)fmt -l .)"; \
+		if [ -n "$$unformatted" ]; then \
+			echo "✗ gofmt needed:"; echo "$$unformatted"; exit 1; \
+		fi
+	cd agents/edge-agent && $(GO) vet ./...
+
 # ── Typecheck / build ──────────────────────────────────────────────────────
 
 typecheck-web:
@@ -74,6 +87,15 @@ typecheck-web:
 build-web:
 	@echo "▶ build web"
 	cd apps/web && $(WEB_RUNNER) next build
+
+# The agent ships to robots on all three Linux targets; darwin/arm64 proves the
+# non-Linux fallback still compiles on a dev laptop.
+build-edge-agent:
+	@echo "▶ build edge-agent (all targets)"
+	@cd agents/edge-agent && for t in linux/amd64 linux/arm64 linux/arm darwin/arm64; do \
+		echo "  $$t"; \
+		GOOS=$${t%/*} GOARCH=$${t#*/} $(GO) build -o /dev/null ./cmd/agent || exit 1; \
+	done
 
 # Everything CI runs.
 check: lint test typecheck-web

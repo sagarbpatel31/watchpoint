@@ -194,9 +194,16 @@ export WP_BACKEND_URL=$API WP_DEVICE_TOKEN=wp_...
 > **Re-seeding revokes demo tokens.** `POST /seed/demo` deletes and recreates the
 > demo devices, which cascades to their tokens. Mint a new one after any reseed.
 
-> **The Go agent's system metrics are still simulated** — `simulateCPU()`, a
-> hardcoded 16GB/500GB, and zeroed network counters. It delivers reliably now,
-> but do not present those numbers to anyone as measurements.
+> **The Go agent reports real measurements on Linux** — CPU from `/proc/stat`,
+> memory from `/proc/meminfo`, disk from `statfs`, network from `/proc/net/dev`,
+> and temperature from `/sys/class/thermal`. On any other OS it collects nothing
+> and logs why, rather than substituting plausible-looking numbers.
+>
+> Two consequences worth knowing. The first tick reports no CPU or network
+> figure: both are deltas between consecutive readings of counters that are
+> cumulative since boot, so a single sample cannot produce them. And a reading
+> the agent cannot take is omitted from the batch entirely rather than sent as
+> zero — a device with no thermal sensors publishes no `cpu_temp_c` at all.
 
 ---
 

@@ -1,8 +1,11 @@
 name: CI
 
+# Working branches are included so CI runs before a PR exists. Without this the
+# workflow only ever fired on main or on an open PR, which meant it had never
+# actually executed.
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "claude/**"]
   pull_request:
 
 # A new push supersedes an in-flight run on the same ref.
@@ -114,8 +117,11 @@ jobs:
         run: make build-web
 
   edge-agent:
-    name: edge-agent (vet + build)
+    name: edge-agent (vet + tests + cross-compile)
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agents/edge-agent
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -124,9 +130,20 @@ jobs:
           # No go.sum: the agent is stdlib-only, so there is nothing to cache
           # and pointing at a missing file fails the step.
           cache: false
+      - name: Format check
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
       - name: Vet
-        working-directory: agents/edge-agent
         run: go vet ./...
+      - name: Tests
+        run: go test ./...
       - name: Build
-        working-directory: agents/edge-agent
         run: go build ./...
+      # The agent ships to robots on all three of these, and the fallback build
+      # keeps it compiling on a macOS dev machine. A platform-specific read that
+      # only works on the runner's architecture is a broken release.
+      - name: Cross-compile
+        run: |
+          for target in linux/amd64 linux/arm64 linux/arm darwin/arm64; do
+            echo "building $target"
+            GOOS=${target%/*} GOARCH=${target#*/} go build -o /dev/null ./cmd/agent
+          done

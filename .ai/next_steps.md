@@ -41,22 +41,41 @@ without an auth decision.
 
 ---
 
-## 🟡 Priority 2 — Replace edge-agent stubs with real telemetry
+## ✅ Done — was P2 (real edge-agent telemetry)
 
-File:
-- `agents/edge-agent/internal/collector/system.go`
+The agent reads `/proc/stat`, `/proc/meminfo`, `/proc/net/dev`, `statfs` and
+`/sys/class/thermal` on Linux, and reports nothing at all on other platforms.
+Verified against `top`, `df` and `/proc` on a live host, and end to end into
+Postgres through the real ingest path.
 
-Required changes:
-- Replace `simulateCPU()` and the hardcoded 16GB/500GB with real `/proc` reads
-- Network counters are still `0 // placeholder`
-- Validate behaviour on a Linux/Jetson target
+One item could not be validated here: **temperature has no hardware to test
+against** — this VM exposes no thermal zones. The parsers are covered by
+fixtures (`proc_test.go`), but the `/sys/class/thermal` walk itself wants
+confirming on a Jetson before anyone relies on `cpu_temp_c` in the field.
 
-The agent now authenticates and delivers correctly — but the numbers it delivers
-are invented. Do not put it on real hardware and expect trustworthy RCA inputs,
-and do not show a design partner these values as if they were measurements.
+---
 
-(`project_id` is no longer relevant here: the device is resolved from the token,
-and the hardcoded `demoProjectID` has been removed.)
+## 🟡 Priority 2 — `inference_latency_ms` has no producer
+
+Files:
+- `agents/model-collector/model_collector/sender.py`
+- `apps/api/app/services/analysis.py` (rule 2, line ~121)
+
+The RCA engine keys on exactly four metric names. Three now have producers;
+`inference_latency_ms` has none — it is stored on `Inference.latency_ms` as a
+column, never emitted as a `MetricPoint`, so `metric_map` never contains it.
+
+The consequence is specific and confirmed by running the analyzer: with
+`cpu_temp_c` above 75 the thermal rule contributes *evidence* but no probable
+cause, because the "Thermal throttling" cause additionally requires
+`inference_latency_ms > 100`. Feeding both in makes it fire at 0.80 confidence.
+So demo scenario 2 works only from seeded data, and would still not reproduce on
+a real overheating robot.
+
+Fix is to have model-collector emit per-inference latency as a metric point
+alongside the `Inference` row, or to have the analyzer read latency from the
+`inferences` table rather than from `metric_map`. The latter is probably right —
+the data is already there and duplicating it invites drift.
 
 ---
 

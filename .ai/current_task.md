@@ -1,10 +1,54 @@
 # Current Task
 
-Last updated: 2026-08-07.
+Last updated: 2026-08-11.
 
 ## Active branch
 
 `claude/project-startup-planning-ub8jwb`.
+
+---
+
+## 2026-08-11 — The edge agent measures instead of guessing
+
+`simulateCPU()` and the hardcoded 16GB/500GB are gone. The agent reads
+`/proc/stat`, `/proc/meminfo`, `/proc/net/dev`, `statfs` and
+`/sys/class/thermal`, stdlib only, and reports **nothing** on non-Linux rather
+than substituting plausible values.
+
+Two things turned up that were worth more than the `/proc` swap itself:
+
+**Nothing emitted a temperature.** The RCA engine keys on exactly four metric
+names, and `gpu_temp_c`/`cpu_temp_c` had no producer at all — so the
+thermal-throttling rule could never fire on real fleet data, only on seeds.
+Adding it is what makes this change reach the rules engine rather than just
+being tidier code.
+
+**Disk percentage was measuring the wrong denominator.** `used/total` read 5% on
+a volume `df` called 36% full, because 215 GiB of the 252 GiB device was
+reserved and unavailable. It would have stayed under 6% at the moment the last
+writable byte disappeared. Now `used / (used + available)`, matching `df`.
+
+Also: unmeasured values are omitted rather than sent as zero (the first tick has
+no CPU figure — it is a delta and there is nothing to difference against yet),
+and memory used was previously `runtime.MemStats.Sys`, the agent's own heap,
+reporting 6 MB on a 16 GB host.
+
+**Verified against the live host and a live Postgres:** CPU tracked a pinned
+core at 25.5% on 4 cores, memory matched `/proc/meminfo` to within 0.3pp, disk
+matched `df` to 0.06pp, and ingested `cpu_percent` fell below the old simulated
+floor of 15.0 — proof the values are not the old `15 + rand()*10`.
+
+**CI had never executed once.** It triggered only on push to `main` or on a PR,
+and lived on a branch with neither. Working branches are now in the push
+trigger, and the edge-agent job gained `go test`, a `gofmt` check, and a
+cross-compile of all three shipping targets.
+
+**Not validated:** temperature. This VM exposes no thermal zones, so the
+`/sys/class/thermal` walk is fixture-tested only and wants a Jetson before
+anyone trusts `cpu_temp_c` in the field.
+
+**Next:** `inference_latency_ms` has no producer, so the thermal rule yields
+evidence but no probable cause on real data. See P2 in `next_steps.md`.
 
 ---
 

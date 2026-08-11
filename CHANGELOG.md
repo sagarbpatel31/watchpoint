@@ -5,6 +5,68 @@ Format: [Conventional Commits](https://www.conventionalcommits.org/).
 
 ---
 
+## [0.6.0] — The edge agent measures instead of guessing (2026-08-11)
+
+The collectors delivered reliably as of 0.5.0, but the edge agent's numbers were
+invented: `simulateCPU()` returned `15 + rand()*10`, memory and disk were
+hardcoded constants, and network counters were literally `0 // placeholder`.
+`DEPLOY.md` carried a warning not to show any of it to anyone as a measurement.
+
+### Added
+
+- **Real Linux telemetry.** CPU from `/proc/stat`, memory from `/proc/meminfo`,
+  disk via `statfs`, network from `/proc/net/dev`, temperature from
+  `/sys/class/thermal`. Stdlib only — `go.mod` still has zero dependencies.
+- **`cpu_temp_c` and `gpu_temp_c` are now emitted.** No collector produced a
+  temperature before, which meant the thermal-throttling rule — one of the seven,
+  and the whole of demo scenario 2 — could not fire on real fleet data at all.
+  Zones are matched by their `type` label, so Jetson's `CPU-therm`/`GPU-therm`
+  and x86's `coretemp`/`acpitz` both resolve.
+- **Network as rates**, `net_rx_bytes_per_sec` / `net_tx_bytes_per_sec`, rather
+  than the raw since-boot counters an operator cannot reason about.
+- **First Go tests in the repo**, covering the `/proc` formats against fixtures.
+  CI now runs `go test`, a `gofmt` check, and cross-compiles all three shipping
+  targets plus `darwin/arm64`.
+
+### Fixed
+
+- **Memory was the wrong quantity, not merely simulated.** `MemoryUsedBytes` was
+  `runtime.MemStats.Sys` — the agent's own Go heap. It reported 6 MB used on a
+  16 GB host and anyone reading it as system memory was being actively misled.
+- **Disk percentage now matches `df`.** It is computed as `used / (used +
+  available)`, not `used / total`. Filesystems reserve blocks that free space
+  reports but no ordinary write can claim; on the volume this was verified
+  against, 215 GiB of a 252 GiB device was unavailable, so `used/total` read 5%
+  where `df` said 36% — and would still have read under 6% at the moment the
+  last writable byte vanished, hiding a disk-full incident completely.
+- **CI had never run once.** The workflow triggered only on push to `main` or on
+  a pull request, but lived on a working branch with no PR open, so no trigger
+  condition ever matched. Working branches are now included in the push trigger.
+
+### Changed
+
+- **`Collect()` is now a stateful `Sampler`.** CPU percentage and network rates
+  are deltas between consecutive readings of counters that are cumulative since
+  boot; a single sample cannot produce either.
+- **Unmeasured values are omitted, never zeroed.** The first tick publishes no
+  CPU or network figure, and hardware without thermal sensors publishes no
+  temperature. The RCA rules cannot distinguish `0` from "unknown", and would
+  read a missing sensor as a cold, idle machine.
+- **Non-Linux platforms collect nothing** and say so once, instead of filling the
+  gap with simulated values. A developer running the agent on macOS was
+  previously shipping invented readings indistinguishable from a real robot's.
+
+### Known gaps
+
+- **Temperature is unvalidated on hardware.** The sandbox exposes no thermal
+  zones, so the `/sys/class/thermal` walk is covered by fixtures only. Confirm on
+  a Jetson before relying on `cpu_temp_c` in the field.
+- **`inference_latency_ms` still has no producer**, so the thermal rule yields
+  evidence but not a probable cause on real data. Tracked as the new P2 in
+  `.ai/next_steps.md`.
+
+---
+
 ## [0.5.0] — The collectors actually deliver data (2026-08-07)
 
 The previous release put device tokens on ingest and knowingly left the

@@ -1,12 +1,14 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -32,6 +34,11 @@ func main() {
 	// Start health endpoint.
 	go serveHealth()
 
+	// The sampler is stateful: CPU usage and network rates are deltas between
+	// consecutive readings of cumulative counters, so it must outlive the loop.
+	// The first tick therefore reports no CPU figure.
+	sampler := collector.NewSampler()
+
 	// Run collection loop.
 	ticker := time.NewTicker(cfg.CollectionInterval)
 	defer ticker.Stop()
@@ -39,22 +46,65 @@ func main() {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
+	var loggedUnsupported bool
+
 	log.Println("Collection loop running. Press Ctrl+C to stop.")
 	for {
 		select {
 		case <-ticker.C:
-			metrics := collector.Collect()
+			metrics, err := sampler.Sample()
+			if err != nil {
+				// On a non-Linux dev machine this is permanent, so say it once
+				// rather than every tick.
+				if errors.Is(err, collector.ErrUnsupportedPlatform) {
+					if !loggedUnsupported {
+						log.Printf("No metrics collected: %v. The agent will keep "+
+							"running but report nothing.", err)
+						loggedUnsupported = true
+					}
+					continue
+				}
+				log.Printf("ERROR collecting metrics: %v", err)
+				continue
+			}
+
 			if err := client.SendMetrics(metrics); err != nil {
 				log.Printf("ERROR sending metrics: %v", err)
 			} else {
-				log.Printf("Metrics sent (cpu=%.1f%%, mem_used=%d MB)",
-					metrics.CPUUsagePercent, metrics.MemoryUsedBytes/(1024*1024))
+				log.Printf("Metrics sent (%s)", summarize(metrics))
 			}
 		case sig := <-sigCh:
 			log.Printf("Received %s, shutting down", sig)
 			return
 		}
 	}
+}
+
+// summarize renders a metrics snapshot for the log line, showing "n/a" for
+// readings the agent could not take rather than printing a misleading zero.
+func summarize(m collector.SystemMetrics) string {
+	parts := make([]string, 0, 4)
+
+	if m.CPUUsagePercent != nil {
+		parts = append(parts, fmt.Sprintf("cpu=%.1f%%", *m.CPUUsagePercent))
+	} else {
+		parts = append(parts, "cpu=n/a")
+	}
+	if pct, ok := m.MemoryUsedPercent(); ok {
+		parts = append(parts, fmt.Sprintf("mem=%.1f%% of %d MB",
+			pct, m.MemoryTotalBytes/(1024*1024)))
+	}
+	if pct, ok := m.DiskUsedPercent(); ok {
+		parts = append(parts, fmt.Sprintf("disk=%.1f%%", pct))
+	}
+	if m.CPUTempC != nil {
+		parts = append(parts, fmt.Sprintf("cpu_temp=%.1fC", *m.CPUTempC))
+	}
+	if m.GPUTempC != nil {
+		parts = append(parts, fmt.Sprintf("gpu_temp=%.1fC", *m.GPUTempC))
+	}
+
+	return strings.Join(parts, ", ")
 }
 
 func parseFlags() config.Config {

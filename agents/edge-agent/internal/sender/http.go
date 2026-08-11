@@ -34,17 +34,55 @@ func NewClient(apiURL, token string) *Client {
 }
 
 // SendMetrics posts a metrics snapshot to the API as a batch.
+//
+// Only measured values are sent. A reading the agent could not take — CPU on
+// the first tick, temperature on hardware with no thermal zones — is omitted
+// entirely rather than sent as zero, because the RCA rules cannot distinguish
+// "0" from "unknown" and would read a missing sensor as a cold, idle machine.
+//
+// The metric names are load-bearing: apps/api/app/services/analysis.py keys its
+// rules on exactly these strings, and cpu_temp_c / gpu_temp_c are what the
+// thermal-throttling rule matches on.
 func (c *Client) SendMetrics(m collector.SystemMetrics) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	metrics := []map[string]interface{}{
-		{"timestamp": now, "metric_name": "cpu_percent", "value": m.CPUUsagePercent, "unit": "%"},
-		{"timestamp": now, "metric_name": "memory_percent", "value": float64(m.MemoryUsedBytes) / float64(m.MemoryTotalBytes+1) * 100, "unit": "%"},
-		{"timestamp": now, "metric_name": "disk_used_percent", "value": float64(m.DiskUsedBytes) / float64(m.DiskTotalBytes+1) * 100, "unit": "%"},
+	timestamp := m.Timestamp.UTC().Format(time.RFC3339)
+	metrics := make([]map[string]interface{}, 0, 7)
+
+	add := func(name string, value float64, unit string) {
+		metrics = append(metrics, map[string]interface{}{
+			"timestamp":   timestamp,
+			"metric_name": name,
+			"value":       value,
+			"unit":        unit,
+		})
 	}
-	payload := map[string]interface{}{
-		"metrics": metrics,
+
+	if m.CPUUsagePercent != nil {
+		add("cpu_percent", *m.CPUUsagePercent, "%")
 	}
-	return c.post("/api/v1/ingest/metrics", payload)
+	if pct, ok := m.MemoryUsedPercent(); ok {
+		add("memory_percent", pct, "%")
+	}
+	if pct, ok := m.DiskUsedPercent(); ok {
+		add("disk_used_percent", pct, "%")
+	}
+	if m.CPUTempC != nil {
+		add("cpu_temp_c", *m.CPUTempC, "celsius")
+	}
+	if m.GPUTempC != nil {
+		add("gpu_temp_c", *m.GPUTempC, "celsius")
+	}
+	if m.NetRxBytesPerSec != nil {
+		add("net_rx_bytes_per_sec", *m.NetRxBytesPerSec, "bytes/s")
+	}
+	if m.NetTxBytesPerSec != nil {
+		add("net_tx_bytes_per_sec", *m.NetTxBytesPerSec, "bytes/s")
+	}
+
+	if len(metrics) == 0 {
+		return nil
+	}
+
+	return c.post("/api/v1/ingest/metrics", map[string]interface{}{"metrics": metrics})
 }
 
 // SendLog posts a log entry to the API as a batch.
