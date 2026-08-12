@@ -7,6 +7,7 @@ import { ArrowLeft, Brain, ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Navbar } from "@/components/layout/navbar";
+import { AttentionOverlay } from "@/components/ai/AttentionOverlay";
 import type { AttentionResponse, Inference } from "@/types/ai_layer";
 import { apiFetch } from "@/lib/api-client";
 
@@ -164,36 +165,12 @@ export default function InferenceDetailPage() {
           </Card>
         </div>
 
-        {/* Attention */}
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm flex items-center gap-2">
-              Attention / Saliency Map
-              <Badge
-                variant="outline"
-                className={
-                  attention?.status === "available"
-                    ? "text-green-500 border-green-500/30"
-                    : "text-muted-foreground"
-                }
-              >
-                {attention?.status ?? "unknown"}
-              </Badge>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {attention?.status === "available" ? (
-              <p className="text-sm font-mono text-muted-foreground">
-                {attention.attention_ref}
-              </p>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                Grad-CAM not yet computed for this inference.{" "}
-                <span className="opacity-60">Available in Week 3.</span>
-              </p>
-            )}
-          </CardContent>
-        </Card>
+        {/* Attention overlay */}
+        <AttentionOverlay
+          heatmap={attention?.heatmap ?? null}
+          status={attention?.status ?? "unavailable"}
+          layerName={attention?.layer_name ?? inference.layer_name}
+        />
       </main>
     </div>
   );

@@ -59,7 +59,7 @@
     "device_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
     "offset_seconds": 48,
     "level": "error",
-    "source": "tracemind_detector",
+    "source": "watchpoint_detector",
     "message": "INCIDENT CREATED: GPU thermal throttling during outdoor operation [severity=critical]"
   },
   {
@@ -149,7 +149,7 @@
     "device_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
     "offset_seconds": 120,
     "level": "info",
-    "source": "tracemind_detector",
+    "source": "watchpoint_detector",
     "message": "INCIDENT RESOLVED: GPU thermal throttling during outdoor operation. Duration: 120s."
   }
 ]

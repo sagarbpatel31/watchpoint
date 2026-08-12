@@ -68,7 +68,7 @@
     "device_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
     "offset_seconds": 35,
     "level": "error",
-    "source": "tracemind_detector",
+    "source": "watchpoint_detector",
     "message": "INCIDENT CREATED: CPU contention causing /cmd_vel topic degradation [severity=high]"
   },
   {
@@ -167,7 +167,7 @@
     "device_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
     "offset_seconds": 90,
     "level": "info",
-    "source": "tracemind_detector",
+    "source": "watchpoint_detector",
     "message": "INCIDENT RESOLVED: CPU contention causing /cmd_vel topic degradation. Duration: 90s."
   }
 ]
