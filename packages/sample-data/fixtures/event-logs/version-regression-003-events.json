@@ -59,7 +59,7 @@
     "device_id": "cccccccc-cccc-cccc-cccc-cccccccccccc",
     "offset_seconds": 25,
     "level": "warning",
-    "source": "tracemind_detector",
+    "source": "watchpoint_detector",
     "message": "Anomaly detected: navigation planner performance degraded post-deployment"
   },
   {
@@ -68,7 +68,7 @@
     "device_id": "cccccccc-cccc-cccc-cccc-cccccccccccc",
     "offset_seconds": 28,
     "level": "warning",
-    "source": "tracemind_detector",
+    "source": "watchpoint_detector",
     "message": "INCIDENT CREATED: Navigation regression after v2.4.0 deployment [severity=medium]"
   },
   {
@@ -122,7 +122,7 @@
     "device_id": "cccccccc-cccc-cccc-cccc-cccccccccccc",
     "offset_seconds": 54,
     "level": "warning",
-    "source": "tracemind_detector",
+    "source": "watchpoint_detector",
     "message": "Correlation found: performance regression correlates with deployment d5555555"
   },
   {
@@ -131,7 +131,7 @@
     "device_id": "cccccccc-cccc-cccc-cccc-cccccccccccc",
     "offset_seconds": 58,
     "level": "warning",
-    "source": "tracemind_detector",
+    "source": "watchpoint_detector",
     "message": "Recommendation: Consider rollback to v2.3.1 or adjust inflation_radius parameter"
   },
   {
