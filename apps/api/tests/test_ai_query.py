@@ -10,7 +10,7 @@ These routes sit behind `require_current_user`, so they run through the
 from __future__ import annotations
 
 import uuid
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 

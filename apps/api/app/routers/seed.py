@@ -43,12 +43,28 @@ MODEL_RUN_IDS = [
     uuid.UUID("ffffffff-ffff-ffff-ffff-fffffffffff1"),
     uuid.UUID("ffffffff-ffff-ffff-ffff-fffffffffff2"),
     uuid.UUID("ffffffff-ffff-ffff-ffff-fffffffffff3"),
+    uuid.UUID("ffffffff-ffff-ffff-ffff-fffffffffff4"),  # Demo 4
 ]
 # Specific inference IDs that get OOD signals attached
 _OOD_INF_IDS = [
     uuid.UUID("cccccccc-cccc-cccc-cccc-cc0000000001"),  # incident 01, frame 15 (t≈45s)
     uuid.UUID("cccccccc-cccc-cccc-cccc-cc0000000002"),  # incident 01, frame 16 (t≈48s)
     uuid.UUID("cccccccc-cccc-cccc-cccc-cc0000000003"),  # incident 02, frame 13 (t≈62s)
+]
+# Demo 4 constants
+INCIDENT_ID_04 = uuid.UUID("dddd0004-0004-0004-0004-000000000004")
+MODEL_RUN_ID_04 = MODEL_RUN_IDS[3]
+# Inference IDs for Demo 4 OOD frames (14, 17, 22) — fixed so OOD + Decision can attach
+_D4_OOD_INF_IDS = [
+    uuid.UUID("d4d4d4d4-d4d4-d4d4-d4d4-d4d400000014"),  # frame 14
+    uuid.UUID("d4d4d4d4-d4d4-d4d4-d4d4-d4d400000017"),  # frame 17
+    uuid.UUID("d4d4d4d4-d4d4-d4d4-d4d4-d4d400000022"),  # frame 22
+]
+# Demo 4 "continue" decision inference IDs — early frames where robot proceeded despite OOD building
+_D4_CONTINUE_INF_IDS = [
+    uuid.UUID("d4d4d4d4-d4d4-d4d4-d4d4-d4d400000003"),  # frame 3
+    uuid.UUID("d4d4d4d4-d4d4-d4d4-d4d4-d4d400000006"),  # frame 6
+    uuid.UUID("d4d4d4d4-d4d4-d4d4-d4d4-d4d400000009"),  # frame 9
 ]
 
 
@@ -408,6 +424,90 @@ async def seed_demo_data(db: AsyncSession = Depends(get_db)):
             )
         )
 
+    # --- INCIDENT 4: Shadow misclassification (AI-layer only — system metrics normal) ---
+    incident4 = Incident(
+        id=INCIDENT_ID_04,
+        project_id=PROJECT_ID,
+        device_id=DEVICE_IDS[0],
+        deployment_id=DEPLOYMENT_IDS[0],
+        title="Shadow misclassification — YOLO confidence collapse in warehouse aisle",
+        severity=Severity.high,
+        status=IncidentStatus.investigating,
+        trigger_type="confidence_drop",
+        started_at=base_time + timedelta(minutes=50),
+    )
+    db.add(incident4)
+
+    t4_base = base_time + timedelta(minutes=50)
+
+    # Metrics — deliberately flat/boring (system is fine, failure is AI-layer only)
+    for sec in range(120):
+        ts = t4_base + timedelta(seconds=sec)
+        # CPU, memory, GPU all normal — that's the point
+        cpu = 48 + random.choice([-1, 0, 1])
+        memory = 61 + random.choice([-1, 0, 1])
+        gpu_temp = 54 + random.choice([-1, 0, 1])
+        # Detection confidence collapses (this IS the story)
+        if sec < 30:
+            conf = 0.93 - sec * 0.001
+        elif sec < 60:
+            conf = 0.90 - (sec - 30) * 0.023
+        else:
+            conf = max(0.21, 0.21 + (sec - 90) * 0.001)
+        # False positive rate spikes as shadow is misclassified
+        if sec < 30:
+            fpr = 0.02
+        elif sec < 60:
+            fpr = 0.02 + (sec - 30) * 0.0097
+        else:
+            fpr = 0.31
+
+        for name, value, unit in [
+            ("cpu_percent", cpu, "%"),
+            ("memory_percent", memory, "%"),
+            ("gpu_temp_c", gpu_temp, "C"),
+            ("detection_confidence", round(conf, 3), "ratio"),
+            ("false_positive_rate", round(fpr, 3), "ratio"),
+        ]:
+            db.add(
+                MetricPoint(
+                    device_id=DEVICE_IDS[0],
+                    incident_id=INCIDENT_ID_04,
+                    timestamp=ts,
+                    metric_name=name,
+                    value=round(value, 2),
+                    unit=unit,
+                )
+            )
+
+    events_4 = [
+        (0, LogLevel.info, "system_monitor", "System nominal. CPU 47%, GPU 54°C. Beginning aisle B-7 traversal."),
+        (5, LogLevel.info, "perception_node", "Object detection running at 10Hz. Confidence p50=0.92. No obstacles detected."),
+        (18, LogLevel.info, "nav2_controller", "Waypoint 3 of 8 reached. Path clear."),
+        (30, LogLevel.warn, "confidence_monitor", "Detection confidence trending down: p50=0.88. Scaffolding shadow entering FOV."),
+        (38, LogLevel.warn, "object_detector", "Ambiguous detection: bottom-left quadrant oscillating between shadow/obstacle. Confidence: 0.61."),
+        (44, LogLevel.error, "confidence_monitor", "Detection confidence collapsed to 0.41. Drop rate 54% over 14 seconds."),
+        (46, LogLevel.error, "watchpoint_detector", "INCIDENT CREATED: Shadow misclassification — YOLO confidence collapse [severity=high]"),
+        (47, LogLevel.error, "ood_detector", "OOD signal: embedding distance 2.71σ from training centroid (threshold=2.0σ)."),
+        (50, LogLevel.warn, "system_monitor", "System still nominal. CPU 48%, GPU 54°C. Failure is NOT infrastructure."),
+        (55, LogLevel.error, "object_detector", "Shadow misclassified as solid obstacle. False positive rate: 0.29."),
+        (60, LogLevel.error, "ood_detector", "OOD persisting. Softmax entropy: 0.81 (threshold=0.60). Model uncertainty elevated."),
+        (65, LogLevel.fatal, "nav2_controller", "Emergency stop. Perception confidence 0.21 — below safe navigation threshold (0.35)."),
+        (70, LogLevel.warn, "watchpoint_detector", "Grad-CAM queued. Attention heatmap shows 84% activation in bottom-left quadrant — shadow fixation."),
+        (90, LogLevel.info, "watchpoint_detector", "Root cause: YOLO training data lacks scaffold shadow examples at current angle. OOD: 2.7σ."),
+    ]
+    for offset, level, source, message in events_4:
+        db.add(
+            EventLog(
+                device_id=DEVICE_IDS[0],
+                incident_id=INCIDENT_ID_04,
+                timestamp=t4_base + timedelta(seconds=offset),
+                level=level,
+                source=source,
+                message=message,
+            )
+        )
+
     # -----------------------------------------------------------------------
     # AI layer — ModelRuns, Inferences, OODSignals
     # -----------------------------------------------------------------------
@@ -423,12 +523,12 @@ async def seed_demo_data(db: AsyncSession = Depends(get_db)):
             "projects": 1,
             "devices": 3,
             "deployments": 3,
-            "incidents": 3,
-            "event_logs": len(events_1) + len(events_2) + len(events_3),
-            "metric_points": 90 * 5 + 120 * 4 + 60 * 3,
-            "model_runs": 3,
+            "incidents": 4,
+            "event_logs": len(events_1) + len(events_2) + len(events_3) + len(events_4),
+            "metric_points": 90 * 5 + 120 * 4 + 60 * 3 + 120 * 5,
+            "model_runs": 4,
             "inference_frames": ai_frame_count,
-            "ood_signals": 3,
+            "ood_signals": 6,
         },
     }
 
@@ -638,4 +738,152 @@ def _seed_ai_layer(db: AsyncSession, base_time: datetime) -> int:
             )
         )
 
-    return 30 + 25 + 10  # 65 total frames
+    # ---- Incident 04: shadow misclassification (30 frames, 4s spacing, 120s) ----
+    # Confidence: 0.93 → 0.21 (sharp S-curve drop starting frame 10)
+    # First half (0-14) median ≈ 0.91 → second half (15-29) median ≈ 0.26 → drop ~71% → AI-001 fires
+    # OOD signals on frames 14, 17, 22 → AI-002 fires
+    # "continue" decisions on frames 3, 6, 9 (before OOD) → AI-005 fires (OOD + continue = mismatch)
+    i04_base = base_time + timedelta(minutes=50)
+    i04_step_s = 4.0  # 120s / 30 frames
+
+    db.add(
+        ModelRun(
+            id=MODEL_RUN_ID_04,
+            device_id=DEVICE_IDS[0],
+            framework=Framework.pytorch,
+            model_name="yolov8n-warehouse",
+            weights_hash="d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5",
+            started_at=i04_base,
+            metadata_json={"input_size": [640, 640], "batch_size": 1, "task": "obstacle_detection"},
+        )
+    )
+
+    # Pre-compute confidence curve — clear S-curve collapse
+    i04_confs = []
+    for f in range(30):
+        if f < 10:
+            c = 0.93 - f * 0.002          # 0.93 → 0.91 (slight early decline)
+        elif f < 20:
+            c = 0.91 - (f - 10) * 0.070  # 0.91 → 0.21 (sharp collapse over 10 frames)
+        else:
+            c = max(0.21, 0.22 - (f - 20) * 0.001)  # 0.21 plateau
+        i04_confs.append(round(c, 3))
+
+    i04_lats = []
+    for f in range(30):
+        # Slight latency uptick as model uncertainty grows (not a big spike)
+        lat = 35.0 + f * 0.57
+        i04_lats.append(round(min(lat, 52.0), 1))
+
+    # Shadow attention heatmap — bottom-left quadrant hot (model fixated on shadow)
+    shadow_heatmap = _shadow_attention_heatmap()
+
+    # OOD frame indices → fixed UUID lookup
+    ood_frame_map = {14: _D4_OOD_INF_IDS[0], 17: _D4_OOD_INF_IDS[1], 22: _D4_OOD_INF_IDS[2]}
+    continue_frame_map = {3: _D4_CONTINUE_INF_IDS[0], 6: _D4_CONTINUE_INF_IDS[1], 9: _D4_CONTINUE_INF_IDS[2]}
+
+    for f in range(30):
+        ts_ns = int((i04_base + timedelta(seconds=f * i04_step_s)).timestamp() * 1e9)
+        inf_id = ood_frame_map.get(f) or continue_frame_map.get(f) or uuid.uuid4()
+
+        # Embed attention heatmap in outputs for OOD frames (14-22) — Grad-CAM is available here
+        outputs = None
+        if f in ood_frame_map or (14 <= f <= 22):
+            outputs = {"attention_heatmap": shadow_heatmap, "top_class": "shadow", "top_score": i04_confs[f]}
+
+        inf = Inference(
+            id=inf_id,
+            model_run_id=MODEL_RUN_ID_04,
+            device_id=DEVICE_IDS[0],
+            incident_id=INCIDENT_ID_04,
+            timestamp_ns=ts_ns,
+            confidence=i04_confs[f],
+            latency_ms=i04_lats[f],
+            layer_name="model.head",
+            output_mean=round(0.48 - f * 0.008, 4),
+            output_std=round(0.14 + f * 0.003, 4),
+            outputs=outputs,
+        )
+        db.add(inf)
+
+    # OOD signals for Demo 4 — embedding distance + softmax entropy
+    db.add(OODSignal(
+        id=uuid.uuid4(), inference_id=_D4_OOD_INF_IDS[0],
+        signal_type="embedding_distance", score=2.71, threshold=2.0, is_ood=True,
+        created_at=now,
+    ))
+    db.add(OODSignal(
+        id=uuid.uuid4(), inference_id=_D4_OOD_INF_IDS[1],
+        signal_type="softmax_entropy", score=0.81, threshold=0.60, is_ood=True,
+        created_at=now,
+    ))
+    db.add(OODSignal(
+        id=uuid.uuid4(), inference_id=_D4_OOD_INF_IDS[2],
+        signal_type="embedding_distance", score=2.93, threshold=2.0, is_ood=True,
+        created_at=now,
+    ))
+
+    # Decisions for Demo 4 — early "continue" actions while confidence was still high
+    # These trigger AI-005 (continue + OOD = decision-perception mismatch)
+    for inf_id, conf, ts_offset_s in [
+        (_D4_CONTINUE_INF_IDS[0], i04_confs[3], 3 * i04_step_s),
+        (_D4_CONTINUE_INF_IDS[1], i04_confs[6], 6 * i04_step_s),
+        (_D4_CONTINUE_INF_IDS[2], i04_confs[9], 9 * i04_step_s),
+    ]:
+        db.add(Decision(
+            id=uuid.uuid4(),
+            inference_id=inf_id,
+            policy_name="nav_policy_v2",
+            action="continue_navigation",
+            alternatives=[{"action": "slow_down", "score": 0.31}, {"action": "stop", "score": 0.12}],
+            confidence=conf,
+            timestamp_ns=int((i04_base + timedelta(seconds=ts_offset_s)).timestamp() * 1e9),
+            created_at=now,
+        ))
+
+    # Final emergency stop decision (correct response — does NOT trigger AI-005)
+    db.add(Decision(
+        id=uuid.uuid4(),
+        inference_id=_D4_OOD_INF_IDS[0],  # frame 14 — first OOD frame
+        policy_name="nav_policy_v2",
+        action="emergency_stop",
+        alternatives=[{"action": "slow_down", "score": 0.45}, {"action": "continue_navigation", "score": 0.08}],
+        confidence=0.89,
+        timestamp_ns=int((i04_base + timedelta(seconds=14 * i04_step_s)).timestamp() * 1e9),
+        created_at=now,
+    ))
+
+    return 30 + 25 + 10 + 30  # 95 total frames
+
+
+def _shadow_attention_heatmap() -> list[list[float]]:
+    """Generate 8×8 Grad-CAM heatmap where bottom-left quadrant is hot.
+
+    Represents model fixating on the shadow region in the lower-left of the
+    camera frame. Used for Demo 4 (shadow misclassification).
+
+    Layout (rows top→bottom, cols left→right):
+      Top-right  (clear scene):  near-zero attention  0.05–0.08
+      Top-left   (spillover):    low attention         0.15–0.24
+      Bottom-right (background): very low             0.08–0.14
+      Bottom-left (shadow zone): HIGH attention        0.72–0.99
+    """
+    grid = []
+    for row in range(8):
+        row_vals = []
+        for col in range(8):
+            if row >= 4 and col <= 3:
+                # Shadow fixation zone — bottom-left quadrant
+                val = round(0.72 + (row - 4) * 0.06 + (3 - col) * 0.03, 2)
+            elif row >= 4 and col > 3:
+                # Bottom-right background
+                val = round(0.08 + (col - 4) * 0.02, 2)
+            elif row < 4 and col <= 3:
+                # Top-left spillover
+                val = round(0.15 + (3 - row) * 0.03, 2)
+            else:
+                # Top-right legitimate scene (near-zero)
+                val = round(0.05 + row * 0.01, 2)
+            row_vals.append(val)
+        grid.append(row_vals)
+    return grid

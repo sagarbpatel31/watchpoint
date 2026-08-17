@@ -39,6 +39,8 @@ export interface AttentionResponse {
   layer_name: string | null;
   /** "available" when Grad-CAM has been computed; "unavailable" otherwise */
   status: "available" | "unavailable";
+  /** 8×8 normalized attention grid (0.0–1.0). null when status="unavailable". */
+  heatmap: number[][] | null;
 }
 
 export interface Decision {

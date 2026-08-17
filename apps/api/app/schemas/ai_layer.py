@@ -169,8 +169,10 @@ class AttentionResponse(BaseModel):
     inference_id: uuid.UUID
     attention_ref: Optional[str]
     layer_name: Optional[str]
-    # "available" — attention_ref set; "unavailable" — not computed yet
+    # "available" — heatmap data present; "unavailable" — not computed yet
     status: str
+    # 8×8 normalized attention grid (0.0–1.0). None when status="unavailable".
+    heatmap: Optional[list[list[float]]] = None
 
 
 # ---------------------------------------------------------------------------

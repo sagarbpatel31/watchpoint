@@ -210,6 +210,105 @@ async def seed_incidents(client: httpx.AsyncClient, base_time: float) -> None:
             print(f"    Metrics ({total_sent} points across {len(metrics_data['metrics'])} series): ok")
 
 
+async def seed_ai_layer_demo4(client: httpx.AsyncClient, base_time: float) -> None:
+    """Seed Demo 4 AI layer data via REST API ingest endpoints.
+
+    Creates ModelRun + 30 Inferences + 3 OODSignals + 4 Decisions for the
+    shadow misclassification incident (inc-00400-...).
+    """
+    print("[7/7] Seeding Demo 4 AI layer (model-collector data)...")
+
+    DEVICE_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    INCIDENT_ID = "inc-00400-0004-0004-0004-000000000004"
+    MODEL_RUN_ID = "ffffffff-ffff-ffff-ffff-fffffffffff4"
+    t4_base = base_time + 50 * 60  # 50 min after base_time
+
+    # 1. Create ModelRun
+    resp = await client.post("/api/v1/ingest/model-runs", json={
+        "id": MODEL_RUN_ID,
+        "device_id": DEVICE_ID,
+        "framework": "pytorch",
+        "model_name": "yolov8n-warehouse",
+        "weights_hash": "d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5",
+        "started_at": datetime.fromtimestamp(t4_base, tz=timezone.utc).isoformat(),
+        "metadata": {"input_size": [640, 640], "batch_size": 1},
+    })
+    status = "ok" if resp.status_code in (200, 201, 409) else f"WARN({resp.status_code})"
+    print(f"  ModelRun: {status}")
+
+    # 2. Build 30 inference frames
+    ood_frame_ids = {
+        14: "d4d4d4d4-d4d4-d4d4-d4d4-d4d400000014",
+        17: "d4d4d4d4-d4d4-d4d4-d4d4-d4d400000017",
+        22: "d4d4d4d4-d4d4-d4d4-d4d4-d4d400000022",
+    }
+    continue_frame_ids = {
+        3: "d4d4d4d4-d4d4-d4d4-d4d4-d4d400000003",
+        6: "d4d4d4d4-d4d4-d4d4-d4d4-d4d400000006",
+        9: "d4d4d4d4-d4d4-d4d4-d4d4-d4d400000009",
+    }
+
+    def _conf(f: int) -> float:
+        if f < 10:
+            return round(0.93 - f * 0.002, 3)
+        elif f < 20:
+            return round(max(0.21, 0.91 - (f - 10) * 0.070), 3)
+        else:
+            return 0.21
+
+    inferences = []
+    for f in range(30):
+        ts_ns = int((t4_base + f * 4.0) * 1e9)
+        inf_id = ood_frame_ids.get(f) or continue_frame_ids.get(f)
+        outputs = None
+        if 14 <= f <= 22:
+            outputs = {"top_class": "shadow", "top_score": _conf(f)}
+
+        item: dict = {
+            "model_run_id": MODEL_RUN_ID,
+            "device_id": DEVICE_ID,
+            "incident_id": INCIDENT_ID,
+            "timestamp_ns": ts_ns,
+            "confidence": _conf(f),
+            "latency_ms": round(35.0 + f * 0.57, 1),
+            "layer_name": "model.head",
+            "output_mean": round(0.48 - f * 0.008, 4),
+            "output_std": round(0.14 + f * 0.003, 4),
+        }
+        if inf_id:
+            item["inference_id"] = inf_id
+        if outputs:
+            item["outputs"] = outputs
+        inferences.append(item)
+
+    resp = await client.post("/api/v1/ingest/inferences", json={"inferences": inferences})
+    status = "ok" if resp.status_code in (200, 201) else f"WARN({resp.status_code})"
+    print(f"  Inferences (30 frames): {status}")
+
+    # 3. OOD signals
+    ood_signals_data = [
+        {"inference_id": ood_frame_ids[14], "signal_type": "embedding_distance", "score": 2.71, "threshold": 2.0, "is_ood": True},
+        {"inference_id": ood_frame_ids[17], "signal_type": "softmax_entropy", "score": 0.81, "threshold": 0.60, "is_ood": True},
+        {"inference_id": ood_frame_ids[22], "signal_type": "embedding_distance", "score": 2.93, "threshold": 2.0, "is_ood": True},
+    ]
+    # OOD signals go via ingest endpoint if available; skip silently if not wired
+    for sig in ood_signals_data:
+        resp = await client.post("/api/v1/ingest/ood-signals", json=sig)
+        if resp.status_code not in (200, 201, 404, 405):
+            print(f"  OOD signal WARN({resp.status_code})")
+
+    # 4. Decisions — "continue" actions (trigger AI-005) + final emergency stop
+    decisions = [
+        {"inference_id": continue_frame_ids[3], "policy_name": "nav_policy_v2", "action": "continue_navigation", "confidence": _conf(3)},
+        {"inference_id": continue_frame_ids[6], "policy_name": "nav_policy_v2", "action": "continue_navigation", "confidence": _conf(6)},
+        {"inference_id": continue_frame_ids[9], "policy_name": "nav_policy_v2", "action": "continue_navigation", "confidence": _conf(9)},
+        {"inference_id": ood_frame_ids[14], "policy_name": "nav_policy_v2", "action": "emergency_stop", "confidence": 0.89},
+    ]
+    resp = await client.post("/api/v1/ingest/decisions", json={"decisions": decisions})
+    status = "ok" if resp.status_code in (200, 201) else f"WARN({resp.status_code})"
+    print(f"  Decisions (4): {status}")
+
+
 async def verify_seed(client: httpx.AsyncClient) -> None:
     """Quick verification that seeded data is accessible."""
     print("[6/6] Verifying seeded data...")
@@ -259,6 +358,7 @@ async def main(api_url: str) -> None:
         await seed_devices(client, base_time)
         await seed_deployments(client, base_time)
         await seed_incidents(client, base_time)
+        await seed_ai_layer_demo4(client, base_time)
         await verify_seed(client)
 
     print("\n" + "=" * 60)

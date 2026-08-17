@@ -231,9 +231,21 @@ async def get_inference_attention(
     inf = result.scalar_one_or_none()
     if not inf:
         raise HTTPException(status_code=404, detail="Inference not found")
+
+    # Extract heatmap from outputs JSON if present (seeded by demo data or model-collector)
+    heatmap: list[list[float]] | None = None
+    if inf.outputs and isinstance(inf.outputs, dict):
+        raw = inf.outputs.get("attention_heatmap")
+        if raw and isinstance(raw, list):
+            heatmap = raw
+
+    # Status: available if we have a heatmap grid OR an attention_ref (S3 key)
+    status = "available" if (heatmap is not None or inf.attention_ref) else "unavailable"
+
     return AttentionResponse(
         inference_id=inf.id,
         attention_ref=inf.attention_ref,
         layer_name=inf.layer_name,
-        status="available" if inf.attention_ref else "unavailable",
+        status=status,
+        heatmap=heatmap,
     )
