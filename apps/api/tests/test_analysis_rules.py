@@ -39,12 +39,15 @@ def _event(message: str, level: LogLevel = LogLevel.info) -> EventLog:
 def _mock_db(metrics: list[MetricPoint], events: list[EventLog]) -> AsyncMock:
     """Return an AsyncSession mock that yields the given metrics and events.
 
-    Call order expected by analyze_incident:
-      1. metrics    (Rule 1–7 system rules)
-      2. events     (Rule 1–7 system rules)
-      3. inferences (RuleAI001._get_inferences)
-      4. ood_signals (RuleAI002._get_ood_signals via inferences join)
-      5. inferences (RuleAI003._get_inferences)
+    analyze_incident queries metrics first, then events, then once per AI rule
+    for that rule's own inputs. The AI rules receive empty results so they stay
+    silent in system-rule tests.
+
+    Everything after the first two calls returns empty on demand rather than
+    coming from a fixed-length list. A hardcoded list has to be extended every
+    time a rule is added, and forgetting fails every test in this module with
+    an opaque StopAsyncIteration — which is exactly what happened when AI-004
+    and AI-005 landed alongside a mock written for three AI rules.
     """
     db = AsyncMock()
 
@@ -54,13 +57,15 @@ def _mock_db(metrics: list[MetricPoint], events: list[EventLog]) -> AsyncMock:
     events_result = MagicMock()
     events_result.scalars.return_value.all.return_value = events
 
-    # AI rules receive empty data — they should not fire in system-rule tests
     empty_result = MagicMock()
     empty_result.scalars.return_value.all.return_value = []
 
-    db.execute = AsyncMock(
-        side_effect=[metrics_result, events_result, empty_result, empty_result, empty_result]
-    )
+    queued = [metrics_result, events_result]
+
+    def _next_result(*_args: object, **_kwargs: object) -> MagicMock:
+        return queued.pop(0) if queued else empty_result
+
+    db.execute = AsyncMock(side_effect=_next_result)
     return db
 
 
