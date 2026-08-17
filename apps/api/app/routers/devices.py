@@ -7,14 +7,25 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.device import Deployment, Device, DeviceStatus
+from app.models.device_token import DeviceToken
 from app.schemas.device import (
     DeploymentCreate,
     DeploymentResponse,
     DeviceRegister,
     DeviceResponse,
 )
+from app.schemas.device_token import (
+    DeviceTokenCreate,
+    DeviceTokenCreatedResponse,
+    DeviceTokenResponse,
+)
+from app.security import generate_device_token, require_current_user
 
-router = APIRouter(prefix="/devices", tags=["devices"])
+router = APIRouter(
+    prefix="/devices",
+    tags=["devices"],
+    dependencies=[Depends(require_current_user)],
+)
 
 
 @router.post("/register", response_model=DeviceResponse)
@@ -79,3 +90,81 @@ async def create_deployment(body: DeploymentCreate, db: AsyncSession = Depends(g
     await db.commit()
     await db.refresh(deployment)
     return deployment
+
+
+# ---------------------------------------------------------------------------
+# Device tokens — credentials for embedded agents
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/tokens/{token_id}/revoke",
+    response_model=DeviceTokenResponse,
+    summary="Revoke a device token",
+    description=(
+        "Soft-revokes the token by stamping revoked_at, preserving the audit "
+        "trail of when it existed and when it was last used."
+    ),
+)
+async def revoke_device_token(token_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(DeviceToken).where(DeviceToken.id == token_id))
+    token = result.scalar_one_or_none()
+    if not token:
+        raise HTTPException(status_code=404, detail="Token not found")
+    if token.revoked_at is None:
+        token.revoked_at = datetime.now(timezone.utc)
+        await db.commit()
+        await db.refresh(token)
+    return token
+
+
+@router.post(
+    "/{device_id}/tokens",
+    response_model=DeviceTokenCreatedResponse,
+    status_code=201,
+    summary="Mint a device token",
+    description=(
+        "Creates a credential for an embedded agent. The plaintext token is "
+        "returned in `token_once` and is never retrievable again — only its "
+        "SHA-256 hash is stored."
+    ),
+)
+async def create_device_token(
+    device_id: uuid.UUID,
+    body: DeviceTokenCreate,
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(Device).where(Device.id == device_id))
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    raw_token, prefix, token_hash = generate_device_token()
+    token = DeviceToken(
+        device_id=device_id,
+        name=body.name,
+        token_prefix=prefix,
+        token_hash=token_hash,
+    )
+    db.add(token)
+    await db.commit()
+    await db.refresh(token)
+
+    return DeviceTokenCreatedResponse(
+        **DeviceTokenResponse.model_validate(token).model_dump(),
+        token_once=raw_token,
+    )
+
+
+@router.get(
+    "/{device_id}/tokens",
+    response_model=list[DeviceTokenResponse],
+    summary="List a device's tokens",
+    description="Returns metadata only — the secret is not recoverable.",
+)
+async def list_device_tokens(device_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(DeviceToken)
+        .where(DeviceToken.device_id == device_id)
+        .order_by(DeviceToken.created_at.desc())
+    )
+    return result.scalars().all()

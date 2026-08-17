@@ -17,10 +17,15 @@ from app.schemas.incident import (
     IncidentListResponse,
     IncidentResponse,
 )
+from app.security import require_current_user
 from app.services.analysis import analyze_incident
 from app.services.replay_bundle import generate_replay_bundle
 
-router = APIRouter(prefix="/incidents", tags=["incidents"])
+router = APIRouter(
+    prefix="/incidents",
+    tags=["incidents"],
+    dependencies=[Depends(require_current_user)],
+)
 
 
 @router.post("/", response_model=IncidentResponse)

@@ -1,98 +1,85 @@
 # Next Steps
 
-Last updated: 2026-05-31.
+Last updated: 2026-08-06.
 
-Priority order is fixed. Deployment remains first, but the Alembic item is no longer "initialize migrations" because that work already exists in the repo.
+**The priority order below was revised.** It previously put the production
+deploy first and security third. That was wrong for a specific, verifiable
+reason: `GET /auth/me` was the only authenticated route in the whole API, so
+deploying first would have published a fully open database. P2 and P3 are now
+done; P1 is unblocked and safe to run.
 
----
+## ✅ Done — was P1 (wire device tokens through the collectors)
+
+All three collectors authenticate and deliver, verified against a live API.
+Scope turned out to be larger than "add a header": none of them had ever
+ingested successfully. `Collector.flush()` never called its sender at all, the
+ros2 collector posted the wrong envelope and silently dropped every topic label,
+and inference timestamps used a monotonic clock that could not be correlated
+with anything. See CHANGELOG 0.5.0.
+
+Device identity now comes from the token, so an agent needs only a backend URL
+and a credential.
 
 ## 🔴 Priority 1 — End-to-end production deploy
 
-Nothing is more important than proving the real hosted stack works.
+Still blocked on account provisioning (Supabase + Render). Now
+safe to run: the API authenticates, the container migrates before it binds, and
+`ENABLE_DEMO_SEED` defaults off. Steps are in `DEPLOY.md` (Step 4b covers token
+provisioning).
 
-### Step A: Provision Supabase (user action)
-1. Create Supabase project `watchpoint`
-2. Copy the Postgres URI from Settings → Database → Connection string
-3. Provide that URI for Render `DATABASE_URL`
+## ✅ Done — was P2 (migration-first)
 
-### Step B: Deploy API to Render (user action)
-1. Import `sagarbpatel31/watchpoint` as a Render Blueprint
-2. Confirm `apps/api/render.yaml` is used
-3. Set `DATABASE_URL`
-4. Optionally set `ANTHROPIC_API_KEY`
-5. Wait for deploy and record the exact Render URL
+`alembic upgrade head` runs before uvicorn in both the Dockerfile and
+docker-compose; `create_all` is gone from the app lifespan. CI enforces
+`alembic check` against a real Postgres on every PR.
 
-### Step C: Wire Vercel to the real API (after Render URL exists)
-1. Set `NEXT_PUBLIC_API_URL` in Vercel to the Render URL
-2. Redeploy the frontend
-3. Confirm `CORS_ORIGINS` in `apps/api/render.yaml` matches the actual Vercel domain
-4. Verify frontend requests are hitting the hosted API
+## ✅ Done — was P3 (secure ingest), widened to the whole API
 
-### Step D: Seed and smoke test production
-1. `POST /api/v1/seed/demo`
-2. `GET /api/v1/health`
-3. Login to the hosted frontend with `demo@watchpoint.ai / demo123`
-4. Open dashboard, incident detail, and inference detail pages
-
-### P1 exit criteria
-- Render API URL is live and responds successfully
-- Vercel frontend points to that API URL
-- Production seed succeeds
-- Basic user flow works end-to-end
+JWT on all human routes, device tokens on all agent routes, seed gated behind
+`ENABLE_DEMO_SEED`, and a regression test that fails when a new route is added
+without an auth decision.
 
 ---
 
-## 🟠 Priority 2 — Switch production workflow to migration-first
+## ✅ Done — was P2 (real edge-agent telemetry)
 
-Alembic is already present:
-- `apps/api/alembic/versions/0001_initial.py`
-- `apps/api/alembic/versions/0002_ai_layer.py`
+The agent reads `/proc/stat`, `/proc/meminfo`, `/proc/net/dev`, `statfs` and
+`/sys/class/thermal` on Linux, and reports nothing at all on other platforms.
+Verified against `top`, `df` and `/proc` on a live host, and end to end into
+Postgres through the real ingest path.
 
-Remaining work:
-- Document and use `alembic upgrade head` for production bootstrapping
-- Decide whether to keep or remove `Base.metadata.create_all()` in `apps/api/app/main.py`
-- Ensure future schema changes land as migrations first, not model-only changes
-
-Do this immediately after the first confirmed production deploy.
+One item could not be validated here: **temperature has no hardware to test
+against** — this VM exposes no thermal zones. The parsers are covered by
+fixtures (`proc_test.go`), but the `/sys/class/thermal` walk itself wants
+confirming on a Jetson before anyone relies on `cpu_temp_c` in the field.
 
 ---
 
-## 🟠 Priority 3 — Secure all ingest endpoints
+## 🟡 Priority 2 — `inference_latency_ms` has no producer
 
 Files:
-- `apps/api/app/routers/ingest.py`
-- `apps/api/app/routers/ai_ingest.py`
+- `agents/model-collector/model_collector/sender.py`
+- `apps/api/app/services/analysis.py` (rule 2, line ~121)
 
-Current state:
-- Classic telemetry ingest is unauthenticated
-- AI-layer ingest is also unauthenticated
+The RCA engine keys on exactly four metric names. Three now have producers;
+`inference_latency_ms` has none — it is stored on `Inference.latency_ms` as a
+column, never emitted as a `MetricPoint`, so `metric_map` never contains it.
 
-Recommended fix:
-- Add device-scoped API tokens for edge/ROS2 collectors
-- Add a separate scoped token strategy for the model-collector
-- Accept token via header such as `X-Device-Token`
-- Store only hashed tokens server-side
+The consequence is specific and confirmed by running the analyzer: with
+`cpu_temp_c` above 75 the thermal rule contributes *evidence* but no probable
+cause, because the "Thermal throttling" cause additionally requires
+`inference_latency_ms > 100`. Feeding both in makes it fire at 0.80 confidence.
+So demo scenario 2 works only from seeded data, and would still not reproduce on
+a real overheating robot.
 
-Do not use JWTs for embedded agents.
-
----
-
-## 🟡 Priority 4 — Replace edge-agent stubs with real telemetry
-
-Files:
-- `agents/edge-agent/internal/collector/system.go`
-- `agents/edge-agent/internal/sender/http.go`
-
-Required changes:
-- Replace simulated CPU/disk/network with real collection
-- Make `project_id` configurable instead of hard-coded
-- Validate behavior on Linux/Jetson target environment
-
-Do not deploy the current Go agent to real hardware expecting trustworthy RCA inputs.
+Fix is to have model-collector emit per-inference latency as a metric point
+alongside the `Inference` row, or to have the analyzer read latency from the
+`inferences` table rather than from `metric_map`. The latter is probably right —
+the data is already there and duplicating it invites drift.
 
 ---
 
-## 🟡 Priority 5 — Harden frontend auth storage
+## 🟡 Priority 3 — Harden frontend auth storage
 
 File:
 - `apps/web/src/lib/auth.ts`
@@ -104,7 +91,7 @@ Recommended fix:
 - Move to `httpOnly`, `Secure`, `SameSite=Strict` cookies
 - Add a server-side relay or middleware pattern in Next.js as needed
 
-This matters, but it is still behind P1-P4.
+This matters, but it is still behind the priorities above.
 
 ---
 
@@ -112,7 +99,8 @@ This matters, but it is still behind P1-P4.
 
 These are not the top production blockers, but they should be fixed soon:
 
-- Recreate stale checked-in `.venv` environments whose shebangs still reference the old `Tracemind` path
-- Update README naming and clone instructions to `Watchpoint`
+- Recreate stale checked-in `.venv` environments whose shebangs still reference the old pre-rename repo path
 - Populate `ros2_snapshot.json` instead of shipping a placeholder in replay bundles
-- Decide whether AI-layer ingest should stay public in demos or be secured alongside classic ingest
+- Scope queries by workspace. Auth is now enforced, but any authenticated user
+  still sees every workspace's data. Not reachable by an outsider on a
+  single-tenant self-hosted install; required before any hosted offering.

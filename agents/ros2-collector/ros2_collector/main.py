@@ -9,17 +9,17 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import os
 import signal
-import sys
-import time
+from datetime import datetime, timezone
 
+from .node_inspector import NodeInspector
 from .sender import WatchpointSender
 from .topic_monitor import TopicMonitor
-from .node_inspector import NodeInspector
 
 try:
     import rclpy
-    from rclpy.node import Node
+    from rclpy.node import Node  # noqa: F401  (availability probe)
 
     ROS2_AVAILABLE = True
 except ImportError:
@@ -40,9 +40,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Watchpoint API base URL (default: http://localhost:8000)",
     )
     parser.add_argument(
-        "--device-id",
-        required=True,
-        help="UUID of the device this collector runs on",
+        "--token",
+        default=os.environ.get("WP_DEVICE_TOKEN", ""),
+        help=(
+            "Device token for ingest (default: $WP_DEVICE_TOKEN). Mint one with "
+            "POST /api/v1/devices/{device_id}/tokens. The device this collector "
+            "reports as is resolved from the token, so no device UUID is needed."
+        ),
     )
     parser.add_argument(
         "--interval",
@@ -69,56 +73,61 @@ async def collect_and_send(
     topic_monitor: TopicMonitor,
     node_inspector: NodeInspector,
     sender: WatchpointSender,
-    device_id: str,
 ) -> None:
     """Run a single collection cycle: gather data and send to API."""
-    timestamp = time.time()
+    # Explicit ISO-8601 UTC rather than a bare epoch float, so the wire format
+    # is unambiguous alongside every other collector.
+    timestamp = datetime.now(timezone.utc).isoformat()
 
     topics = topic_monitor.list_topics()
     topic_rates = topic_monitor.measure_rates()
     nodes = node_inspector.list_nodes()
 
+    # Field names must match the ingest schemas exactly: `labels_json` and
+    # `metadata_json`, not `labels` / `metadata`. The API rejects unknown fields
+    # now, but it used to accept and discard them — which meant every
+    # topic_rate_hz point arrived with no record of which topic it measured.
+    #
+    # device_id is deliberately absent: the backend attributes the batch to the
+    # device that owns the token.
     metric_points = []
     for topic_name, rate_hz in topic_rates.items():
         metric_points.append(
             {
-                "device_id": device_id,
                 "metric_name": "topic_rate_hz",
                 "value": rate_hz,
                 "timestamp": timestamp,
-                "labels": {"topic": topic_name},
+                "unit": "hz",
+                "labels_json": {"topic": topic_name},
             }
         )
 
     metric_points.append(
         {
-            "device_id": device_id,
             "metric_name": "ros2_node_count",
             "value": len(nodes),
             "timestamp": timestamp,
-            "labels": {},
+            "labels_json": {},
         }
     )
 
     metric_points.append(
         {
-            "device_id": device_id,
             "metric_name": "ros2_topic_count",
             "value": len(topics),
             "timestamp": timestamp,
-            "labels": {},
+            "labels_json": {},
         }
     )
 
     await sender.send_metrics(metric_points)
 
     event = {
-        "device_id": device_id,
         "timestamp": timestamp,
         "level": "info",
         "source": "ros2_collector",
         "message": f"Collected {len(topics)} topics, {len(nodes)} nodes",
-        "metadata": {
+        "metadata_json": {
             "topics": topics,
             "nodes": nodes,
             "rates": topic_rates,
@@ -139,7 +148,7 @@ async def run_loop(args: argparse.Namespace) -> None:
 
     topic_monitor = TopicMonitor(use_simulation=use_simulation)
     node_inspector = NodeInspector(use_simulation=use_simulation)
-    sender = WatchpointSender(api_url=args.api_url)
+    sender = WatchpointSender(api_url=args.api_url, token=args.token)
 
     shutdown = asyncio.Event()
 
@@ -151,18 +160,12 @@ async def run_loop(args: argparse.Namespace) -> None:
     for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, _handle_signal)
 
-    logger.info(
-        "Starting collection loop (device=%s, interval=%.1fs)",
-        args.device_id,
-        args.interval,
-    )
+    logger.info("Starting collection loop (interval=%.1fs)", args.interval)
 
     try:
         while not shutdown.is_set():
             try:
-                await collect_and_send(
-                    topic_monitor, node_inspector, sender, args.device_id
-                )
+                await collect_and_send(topic_monitor, node_inspector, sender)
                 logger.debug("Collection cycle complete")
             except Exception:
                 logger.exception("Error during collection cycle")

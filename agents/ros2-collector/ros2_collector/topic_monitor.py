@@ -38,7 +38,7 @@ class TopicMonitor:
         if not use_simulation:
             try:
                 import rclpy
-                from rclpy.node import Node
+                from rclpy.node import Node  # noqa: F401  (availability probe)
 
                 self._ros_node = rclpy.create_node("watchpoint_topic_monitor")
                 logger.info("Created ROS2 node for topic monitoring")

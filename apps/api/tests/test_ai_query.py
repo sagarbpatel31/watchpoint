@@ -2,18 +2,21 @@
 
 Uses FastAPI dependency override to inject a mock AsyncSession, avoiding
 a live database connection. All tests are synchronous (TestClient).
+
+These routes sit behind `require_current_user`, so they run through the
+`auth_client` fixture rather than a bare TestClient.
 """
 
 from __future__ import annotations
 
 import uuid
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
-from fastapi.testclient import TestClient
 
 from app.database import get_db
 from app.main import app
+from tests.conftest import make_db_override
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -55,16 +58,7 @@ def _make_inference(
 
 def _db_returning(rows: list) -> callable:
     """Return a get_db override that yields a mock returning `rows` once."""
-
-    async def override():
-        db = AsyncMock()
-        result = MagicMock()
-        result.scalars.return_value.all.return_value = rows
-        result.scalar_one_or_none.return_value = rows[0] if rows else None
-        db.execute = AsyncMock(return_value=result)
-        yield db
-
-    return override
+    return make_db_override(rows)
 
 
 # ---------------------------------------------------------------------------
@@ -72,10 +66,9 @@ def _db_returning(rows: list) -> callable:
 # ---------------------------------------------------------------------------
 
 
-def test_list_incident_inferences_empty():
+def test_list_incident_inferences_empty(auth_client):
     app.dependency_overrides[get_db] = _db_returning([])
-    client = TestClient(app)
-    resp = client.get(f"/api/v1/incidents/{INCIDENT_ID}/inferences")
+    resp = auth_client.get(f"/api/v1/incidents/{INCIDENT_ID}/inferences")
     app.dependency_overrides.clear()
 
     assert resp.status_code == 200
@@ -84,12 +77,11 @@ def test_list_incident_inferences_empty():
     assert body["total"] == 0
 
 
-def test_list_incident_inferences_returns_rows():
+def test_list_incident_inferences_returns_rows(auth_client):
     inf1 = _make_inference(timestamp_ns=1_000)
     inf2 = _make_inference(id=uuid.uuid4(), timestamp_ns=2_000)
     app.dependency_overrides[get_db] = _db_returning([inf1, inf2])
-    client = TestClient(app)
-    resp = client.get(f"/api/v1/incidents/{INCIDENT_ID}/inferences")
+    resp = auth_client.get(f"/api/v1/incidents/{INCIDENT_ID}/inferences")
     app.dependency_overrides.clear()
 
     assert resp.status_code == 200
@@ -105,21 +97,19 @@ def test_list_incident_inferences_returns_rows():
 # ---------------------------------------------------------------------------
 
 
-def test_get_inference_not_found():
+def test_get_inference_not_found(auth_client):
     app.dependency_overrides[get_db] = _db_returning([])
-    client = TestClient(app)
-    resp = client.get(f"/api/v1/inferences/{uuid.uuid4()}")
+    resp = auth_client.get(f"/api/v1/inferences/{uuid.uuid4()}")
     app.dependency_overrides.clear()
 
     assert resp.status_code == 404
     assert resp.json()["detail"] == "Inference not found"
 
 
-def test_get_inference_success():
+def test_get_inference_success(auth_client):
     inf = _make_inference()
     app.dependency_overrides[get_db] = _db_returning([inf])
-    client = TestClient(app)
-    resp = client.get(f"/api/v1/inferences/{INFERENCE_ID}")
+    resp = auth_client.get(f"/api/v1/inferences/{INFERENCE_ID}")
     app.dependency_overrides.clear()
 
     assert resp.status_code == 200
@@ -134,21 +124,19 @@ def test_get_inference_success():
 # ---------------------------------------------------------------------------
 
 
-def test_get_attention_not_found():
+def test_get_attention_not_found(auth_client):
     app.dependency_overrides[get_db] = _db_returning([])
-    client = TestClient(app)
-    resp = client.get(f"/api/v1/inferences/{uuid.uuid4()}/attention")
+    resp = auth_client.get(f"/api/v1/inferences/{uuid.uuid4()}/attention")
     app.dependency_overrides.clear()
 
     assert resp.status_code == 404
 
 
-def test_get_attention_unavailable():
+def test_get_attention_unavailable(auth_client):
     """No Grad-CAM computed yet → status unavailable."""
     inf = _make_inference(attention_ref=None)
     app.dependency_overrides[get_db] = _db_returning([inf])
-    client = TestClient(app)
-    resp = client.get(f"/api/v1/inferences/{INFERENCE_ID}/attention")
+    resp = auth_client.get(f"/api/v1/inferences/{INFERENCE_ID}/attention")
     app.dependency_overrides.clear()
 
     assert resp.status_code == 200
@@ -157,13 +145,12 @@ def test_get_attention_unavailable():
     assert body["attention_ref"] is None
 
 
-def test_get_attention_available():
+def test_get_attention_available(auth_client):
     """attention_ref set → status available."""
     s3_key = "watchpoint/inferences/abc123/gradcam.npy"
     inf = _make_inference(attention_ref=s3_key)
     app.dependency_overrides[get_db] = _db_returning([inf])
-    client = TestClient(app)
-    resp = client.get(f"/api/v1/inferences/{INFERENCE_ID}/attention")
+    resp = auth_client.get(f"/api/v1/inferences/{INFERENCE_ID}/attention")
     app.dependency_overrides.clear()
 
     assert resp.status_code == 200

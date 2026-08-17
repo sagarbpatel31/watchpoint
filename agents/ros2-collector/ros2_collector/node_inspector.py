@@ -109,7 +109,7 @@ class NodeInspector:
         if not use_simulation:
             try:
                 import rclpy
-                from rclpy.node import Node
+                from rclpy.node import Node  # noqa: F401  (availability probe)
 
                 self._ros_node = rclpy.create_node("watchpoint_node_inspector")
                 logger.info("Created ROS2 node for node inspection")
@@ -143,15 +143,9 @@ class NodeInspector:
         node_names_and_namespaces = self._ros_node.get_node_names_and_namespaces()
         for name, namespace in node_names_and_namespaces:
             if name == node_name:
-                pubs = self._ros_node.get_publisher_names_and_types_by_node(
-                    name, namespace
-                )
-                subs = self._ros_node.get_subscriber_names_and_types_by_node(
-                    name, namespace
-                )
-                srvs = self._ros_node.get_service_names_and_types_by_node(
-                    name, namespace
-                )
+                pubs = self._ros_node.get_publisher_names_and_types_by_node(name, namespace)
+                subs = self._ros_node.get_subscriber_names_and_types_by_node(name, namespace)
+                srvs = self._ros_node.get_service_names_and_types_by_node(name, namespace)
                 return NodeInfo(
                     name=name,
                     namespace=namespace,
@@ -164,9 +158,7 @@ class NodeInspector:
     def get_all_node_info(self) -> list[NodeInfo]:
         """Return info for all active nodes."""
         return [
-            info
-            for name in self.list_nodes()
-            if (info := self.get_node_info(name)) is not None
+            info for name in self.list_nodes() if (info := self.get_node_info(name)) is not None
         ]
 
     def destroy(self) -> None:

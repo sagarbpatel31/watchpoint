@@ -1,10 +1,163 @@
 # Current Task
 
-Last updated: 2026-05-31.
+Last updated: 2026-08-11.
 
 ## Active branch
 
-Current checkout is `main`.
+`claude/project-startup-planning-ub8jwb`.
+
+---
+
+## 2026-08-11 — The edge agent measures instead of guessing
+
+`simulateCPU()` and the hardcoded 16GB/500GB are gone. The agent reads
+`/proc/stat`, `/proc/meminfo`, `/proc/net/dev`, `statfs` and
+`/sys/class/thermal`, stdlib only, and reports **nothing** on non-Linux rather
+than substituting plausible values.
+
+Two things turned up that were worth more than the `/proc` swap itself:
+
+**Nothing emitted a temperature.** The RCA engine keys on exactly four metric
+names, and `gpu_temp_c`/`cpu_temp_c` had no producer at all — so the
+thermal-throttling rule could never fire on real fleet data, only on seeds.
+Adding it is what makes this change reach the rules engine rather than just
+being tidier code.
+
+**Disk percentage was measuring the wrong denominator.** `used/total` read 5% on
+a volume `df` called 36% full, because 215 GiB of the 252 GiB device was
+reserved and unavailable. It would have stayed under 6% at the moment the last
+writable byte disappeared. Now `used / (used + available)`, matching `df`.
+
+Also: unmeasured values are omitted rather than sent as zero (the first tick has
+no CPU figure — it is a delta and there is nothing to difference against yet),
+and memory used was previously `runtime.MemStats.Sys`, the agent's own heap,
+reporting 6 MB on a 16 GB host.
+
+**Verified against the live host and a live Postgres:** CPU tracked a pinned
+core at 25.5% on 4 cores, memory matched `/proc/meminfo` to within 0.3pp, disk
+matched `df` to 0.06pp, and ingested `cpu_percent` fell below the old simulated
+floor of 15.0 — proof the values are not the old `15 + rand()*10`.
+
+**CI had never executed once.** It triggered only on push to `main` or on a PR,
+and lived on a branch with neither. Working branches are now in the push
+trigger, and the edge-agent job gained `go test`, a `gofmt` check, and a
+cross-compile of all three shipping targets.
+
+**Not validated:** temperature. This VM exposes no thermal zones, so the
+`/sys/class/thermal` walk is fixture-tested only and wants a Jetson before
+anyone trusts `cpu_temp_c` in the field.
+
+**Next:** `inference_latency_ms` has no producer, so the thermal rule yields
+evidence but no probable cause on real data. See P2 in `next_steps.md`.
+
+---
+
+## 2026-08-07 — Collectors deliver data for the first time
+
+Wiring `X-Device-Token` through the three collectors revealed that **none of
+them had ever ingested successfully**. The missing header was the newest fault,
+not the only one:
+
+| Fault | Effect |
+|---|---|
+| `Collector.flush()` never called its sender | model-collector transmitted nothing, ever |
+| ros2 `send_logs` posted `{"events"}` to `/ingest/logs` | 422 every cycle |
+| ros2 sent `labels` / `metadata`, schemas declare `*_json` | **200 OK with the data silently discarded** |
+| `timestamp_ns` used `time.monotonic_ns()` | inference frames could not be correlated with system telemetry — the core product claim |
+| agents sent hostnames / `"unknown-device"` as `device_id` | 422, schema wants a UUID |
+| auto-generated capture id sent as `incident_id` (an FK) | 500 |
+
+The `labels` one is the instructive failure: ingest returned success and stored
+useless rows. That is why ingest schemas now set `extra: forbid` — a field-name
+mistake is a 422 at integration time rather than missing data found weeks later.
+
+**Device identity now comes from the token.** `device_id` is optional on every
+ingest schema and filled from the authenticated device, so an agent needs only a
+backend URL and a credential. A payload that does name a device is still checked
+(403 on mismatch).
+
+**Verified against a live Postgres and a running API**, because mocked tests
+cannot catch a wrong payload shape — which is exactly how these survived. All
+three collectors ingest; rows carry the token's device; `topic_rate_hz` rows
+carry `labels_json->>'topic'`; timestamps are wall-clock.
+
+**Next:** the Go agent's metrics are still simulated (`simulateCPU()`, hardcoded
+16GB/500GB, network counters `0`). It now delivers reliably — but delivers
+fiction. That is the top remaining agent task.
+
+---
+
+## 2026-08-06 — P2 + P3 complete (and P3 was bigger than recorded)
+
+**P3 was scoped wrong in this file.** It described the exposure as limited to
+`/ingest/*`. In fact `GET /auth/me` was the only authenticated route in the
+entire API — incidents, devices, projects, replay bundles, and the seed endpoint
+all served anonymous callers. The documented order (deploy first, secure later)
+would have published a database anyone could read, write, and re-seed.
+
+| Priority | Status |
+|---|---|
+| **P2** — migration-first | ✅ done. `alembic upgrade head` runs before uvicorn; `create_all` removed from lifespan |
+| **P3** — secure ingest | ✅ done, widened to the whole API. JWT on human routes, `X-Device-Token` on agent routes |
+
+**Verified against a live Postgres, not just mocks:** all four migrations apply
+from scratch, `alembic check` reports no drift, full downgrade-to-base and
+re-upgrade round-trips cleanly, anonymous access is 401 across the board, the
+cross-device token attack returns 403, revocation takes effect immediately, and
+seeding twice leaves row counts stable.
+
+**Also fixed:** `0001_initial` had drifted from the models on `users.email` and
+`workspaces.slug` (plain index + separate unique constraint vs. a single unique
+index). Uniqueness was always enforced, so no data was at risk, but it left
+`alembic check` permanently red. `0004_align_unique_indexes` resolves it.
+
+**CI now exists** (`.github/workflows/ci.yml`) — there was none. The migrations
+job runs against a real Postgres and enforces the repo's own "Alembic before
+schema changes" rule on every PR.
+
+**Immediate next block — collectors are broken until wired.** Ingest now
+requires `X-Device-Token`, which none of the three collectors send:
+`model_collector/sender.py`, `edge-agent/internal/sender/http.go` (also still
+hardcodes `demoProjectID`), `ros2_collector/sender.py`. The demo path is
+unaffected. A design partner cannot send data until this lands.
+
+---
+
+## 2026-08-05 — GTM foundation track (complete)
+
+Product priorities P1–P5 below are unchanged. This session ran the
+go-to-market track in parallel, because P1 is blocked on user-side account
+signups rather than on code.
+
+**Landed:**
+
+| Change | Where |
+|--------|-------|
+| LICENSE relicensed to Apache 2.0 | `LICENSE`, rationale in `docs/gtm/licensing.md` |
+| Landing page repositioned on the AI-layer wedge | `apps/web/src/app/page.tsx` |
+| Pricing page added | `apps/web/src/app/pricing/page.tsx` |
+| Positioning, YC draft, design-partner playbook, launch blog post | `docs/gtm/` |
+| Makefile made portable (PATH-first, macOS fallback) | `Makefile` |
+| TraceMind → Watchpoint rename completed | README, SECURITY.md, seed fixtures, package.json |
+
+**Why the license changed:** the old TraceMind Source-Available License allowed
+evaluation only and forbade commercial use without written permission. That made
+the free self-hosted tier impossible and would have put every design partner in
+violation the moment they deployed to a fleet. Apache 2.0 for the core, with
+commercial features kept outside the tree.
+
+**Open item for Sagar:** relicensing is only clean if you hold copyright on the
+whole tree. If anyone else has contributed, get written sign-off before
+publicising the change. Tracked in `docs/gtm/licensing.md` §Follow-up.
+
+**Claim discipline is now a repo rule.** `docs/gtm/positioning.md` §10 governs
+all customer-facing copy: no metric without evidence, roadmap always labelled as
+roadmap. The previous landing page carried invented numbers (10K+ incidents, 73%
+MTTR reduction) and a non-existent install URL; both are gone.
+
+---
+
+## Product state (unchanged from the 2026-05-31 audit)
 
 This repo is no longer just the original MVP. The codebase now includes:
 - Core incident intelligence backend + frontend
@@ -46,7 +199,7 @@ This repo is no longer just the original MVP. The codebase now includes:
 
 | Gap | Detail |
 |-----|--------|
-| Python test envs are stale | Checked-in `.venv` entrypoints still point at the old repo path `.../Documents/Tracemind/...` |
+| Python test envs are stale | Checked-in `.venv` entrypoints still point at the old pre-rename repo path |
 | Offline dependency resolution | Fresh `uv` runs cannot refill missing deps without network access |
 | Production deploy not proven | No confirmed live Render API URL or wired Vercel production API base in this review |
 
@@ -114,4 +267,4 @@ Current blocker:
 | Hard-coded demo project ID | `agents/edge-agent/internal/sender/http.go` | Real deployments all map to seed project |
 | `ros2_snapshot.json` placeholder | `apps/api/app/services/replay_bundle.py` | Replay bundle incomplete |
 | JWT in `localStorage` | `apps/web/src/lib/auth.ts` | XSS-extractable token |
-| Checked-in `.venv` shebangs still reference `Tracemind` path | `apps/api/.venv/`, `agents/model-collector/.venv/` | Local test tooling breaks after repo rename |
+| Checked-in `.venv` shebangs reference the pre-rename repo path | `apps/api/.venv/`, `agents/model-collector/.venv/` | Local test tooling breaks after repo rename; recreate with `uv sync --extra dev` |

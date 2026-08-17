@@ -3,12 +3,15 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.database import get_db
 from app.models.ai_layer import Decision, Framework, Inference, ModelRun, OODSignal
 from app.models.device import Deployment, Device, DeviceStatus
+from app.models.device_token import DeviceToken
 from app.models.incident import Incident, IncidentStatus, Severity
 from app.models.telemetry import EventLog, LogLevel, MetricPoint
 from app.models.user import User
@@ -65,11 +68,46 @@ _D4_CONTINUE_INF_IDS = [
 ]
 
 
+async def _purge_demo_data(db: AsyncSession) -> None:
+    """Remove the previous demo rows so seeding is idempotent.
+
+    Scoped strictly to the fixed demo IDs declared above — this must never
+    resemble "wipe the database". Deletes run child-first to respect FKs.
+    """
+    inference_ids = select(Inference.id).where(Inference.incident_id.in_(INCIDENT_IDS))
+    await db.execute(delete(OODSignal).where(OODSignal.inference_id.in_(inference_ids)))
+    await db.execute(delete(Decision).where(Decision.inference_id.in_(inference_ids)))
+    await db.execute(delete(Inference).where(Inference.incident_id.in_(INCIDENT_IDS)))
+    await db.execute(delete(Inference).where(Inference.device_id.in_(DEVICE_IDS)))
+    await db.execute(delete(ModelRun).where(ModelRun.id.in_(MODEL_RUN_IDS)))
+    await db.execute(delete(EventLog).where(EventLog.device_id.in_(DEVICE_IDS)))
+    await db.execute(delete(MetricPoint).where(MetricPoint.device_id.in_(DEVICE_IDS)))
+    await db.execute(delete(Incident).where(Incident.id.in_(INCIDENT_IDS)))
+    await db.execute(delete(Deployment).where(Deployment.id.in_(DEPLOYMENT_IDS)))
+    await db.execute(delete(DeviceToken).where(DeviceToken.device_id.in_(DEVICE_IDS)))
+    await db.execute(delete(Device).where(Device.id.in_(DEVICE_IDS)))
+    await db.execute(delete(Project).where(Project.id == PROJECT_ID))
+    await db.execute(delete(Workspace).where(Workspace.id == WORKSPACE_ID))
+    await db.execute(delete(User).where(User.id == USER_ID))
+    await db.flush()
+
+
 @router.post("/demo")
 async def seed_demo_data(db: AsyncSession = Depends(get_db)):
-    """Seed the database with demo data for 3 devices and 3 incidents."""
+    """Seed the database with demo data for 3 devices and 3 incidents.
+
+    Gated on `enable_demo_seed`. Returns 404 rather than 403 when disabled so
+    the endpoint's existence isn't advertised on a production deployment.
+    """
+    if not settings.enable_demo_seed:
+        raise HTTPException(status_code=404, detail="Not Found")
+
     now = datetime.now(timezone.utc)
     base_time = now - timedelta(hours=1)
+
+    # Idempotent: re-seeding replaces the demo rows instead of colliding on
+    # their fixed primary keys.
+    await _purge_demo_data(db)
 
     # User
     user = User(
@@ -177,6 +215,9 @@ async def seed_demo_data(db: AsyncSession = Depends(get_db)):
 
     random.seed(42)
 
+    # The topic each incident's rate metric refers to. Without this label a
+    # topic_rate_hz point records that *a* topic degraded but not which one.
+    topic = "/cmd_vel"
     for sec in range(90):
         ts = base_time + timedelta(seconds=sec)
         # CPU rises from 45% to 98%
@@ -207,6 +248,7 @@ async def seed_demo_data(db: AsyncSession = Depends(get_db)):
                     metric_name=name,
                     value=round(value, 2),
                     unit=unit,
+                    labels_json={"topic": topic} if name == "topic_rate_hz" else None,
                 )
             )
 
@@ -255,6 +297,7 @@ async def seed_demo_data(db: AsyncSession = Depends(get_db)):
     db.add(incident2)
 
     t2_base = base_time + timedelta(minutes=15)
+    topic = "/camera/image_raw"
     for sec in range(120):
         ts = t2_base + timedelta(seconds=sec)
         gpu_temp = 65 + (27 * (sec / 120) ** 1.2) + random.uniform(-1, 1)
@@ -276,6 +319,7 @@ async def seed_demo_data(db: AsyncSession = Depends(get_db)):
                     metric_name=name,
                     value=round(value, 2),
                     unit=unit,
+                    labels_json={"topic": topic} if name == "topic_rate_hz" else None,
                 )
             )
 
@@ -319,6 +363,7 @@ async def seed_demo_data(db: AsyncSession = Depends(get_db)):
     db.add(incident3)
 
     t3_base = base_time + timedelta(minutes=30)
+    topic = "/cmd_vel"
     for sec in range(60):
         ts = t3_base + timedelta(seconds=sec)
         cpu = 40 + random.uniform(-5, 10)
@@ -338,6 +383,7 @@ async def seed_demo_data(db: AsyncSession = Depends(get_db)):
                     metric_name=name,
                     value=round(value, 2),
                     unit=unit,
+                    labels_json={"topic": topic} if name == "topic_rate_hz" else None,
                 )
             )
 
@@ -435,20 +481,85 @@ async def seed_demo_data(db: AsyncSession = Depends(get_db)):
             )
 
     events_4 = [
-        (0, LogLevel.info, "system_monitor", "System nominal. CPU 47%, GPU 54°C. Beginning aisle B-7 traversal."),
-        (5, LogLevel.info, "perception_node", "Object detection running at 10Hz. Confidence p50=0.92. No obstacles detected."),
+        (
+            0,
+            LogLevel.info,
+            "system_monitor",
+            "System nominal. CPU 47%, GPU 54°C. Beginning aisle B-7 traversal.",
+        ),
+        (
+            5,
+            LogLevel.info,
+            "perception_node",
+            "Object detection running at 10Hz. Confidence p50=0.92. No obstacles detected.",
+        ),
         (18, LogLevel.info, "nav2_controller", "Waypoint 3 of 8 reached. Path clear."),
-        (30, LogLevel.warn, "confidence_monitor", "Detection confidence trending down: p50=0.88. Scaffolding shadow entering FOV."),
-        (38, LogLevel.warn, "object_detector", "Ambiguous detection: bottom-left quadrant oscillating between shadow/obstacle. Confidence: 0.61."),
-        (44, LogLevel.error, "confidence_monitor", "Detection confidence collapsed to 0.41. Drop rate 54% over 14 seconds."),
-        (46, LogLevel.error, "watchpoint_detector", "INCIDENT CREATED: Shadow misclassification — YOLO confidence collapse [severity=high]"),
-        (47, LogLevel.error, "ood_detector", "OOD signal: embedding distance 2.71σ from training centroid (threshold=2.0σ)."),
-        (50, LogLevel.warn, "system_monitor", "System still nominal. CPU 48%, GPU 54°C. Failure is NOT infrastructure."),
-        (55, LogLevel.error, "object_detector", "Shadow misclassified as solid obstacle. False positive rate: 0.29."),
-        (60, LogLevel.error, "ood_detector", "OOD persisting. Softmax entropy: 0.81 (threshold=0.60). Model uncertainty elevated."),
-        (65, LogLevel.fatal, "nav2_controller", "Emergency stop. Perception confidence 0.21 — below safe navigation threshold (0.35)."),
-        (70, LogLevel.warn, "watchpoint_detector", "Grad-CAM queued. Attention heatmap shows 84% activation in bottom-left quadrant — shadow fixation."),
-        (90, LogLevel.info, "watchpoint_detector", "Root cause: YOLO training data lacks scaffold shadow examples at current angle. OOD: 2.7σ."),
+        (
+            30,
+            LogLevel.warn,
+            "confidence_monitor",
+            "Detection confidence trending down: p50=0.88. Scaffolding shadow entering FOV.",
+        ),
+        (
+            38,
+            LogLevel.warn,
+            "object_detector",
+            "Ambiguous detection: bottom-left quadrant oscillating between shadow/obstacle. Confidence: 0.61.",
+        ),
+        (
+            44,
+            LogLevel.error,
+            "confidence_monitor",
+            "Detection confidence collapsed to 0.41. Drop rate 54% over 14 seconds.",
+        ),
+        (
+            46,
+            LogLevel.error,
+            "watchpoint_detector",
+            "INCIDENT CREATED: Shadow misclassification — YOLO confidence collapse [severity=high]",
+        ),
+        (
+            47,
+            LogLevel.error,
+            "ood_detector",
+            "OOD signal: embedding distance 2.71σ from training centroid (threshold=2.0σ).",
+        ),
+        (
+            50,
+            LogLevel.warn,
+            "system_monitor",
+            "System still nominal. CPU 48%, GPU 54°C. Failure is NOT infrastructure.",
+        ),
+        (
+            55,
+            LogLevel.error,
+            "object_detector",
+            "Shadow misclassified as solid obstacle. False positive rate: 0.29.",
+        ),
+        (
+            60,
+            LogLevel.error,
+            "ood_detector",
+            "OOD persisting. Softmax entropy: 0.81 (threshold=0.60). Model uncertainty elevated.",
+        ),
+        (
+            65,
+            LogLevel.fatal,
+            "nav2_controller",
+            "Emergency stop. Perception confidence 0.21 — below safe navigation threshold (0.35).",
+        ),
+        (
+            70,
+            LogLevel.warn,
+            "watchpoint_detector",
+            "Grad-CAM queued. Attention heatmap shows 84% activation in bottom-left quadrant — shadow fixation.",
+        ),
+        (
+            90,
+            LogLevel.info,
+            "watchpoint_detector",
+            "Root cause: YOLO training data lacks scaffold shadow examples at current angle. OOD: 2.7σ.",
+        ),
     ]
     for offset, level, source, message in events_4:
         db.add(
@@ -716,7 +827,7 @@ def _seed_ai_layer(db: AsyncSession, base_time: datetime) -> int:
     i04_confs = []
     for f in range(30):
         if f < 10:
-            c = 0.93 - f * 0.002          # 0.93 → 0.91 (slight early decline)
+            c = 0.93 - f * 0.002  # 0.93 → 0.91 (slight early decline)
         elif f < 20:
             c = 0.91 - (f - 10) * 0.070  # 0.91 → 0.21 (sharp collapse over 10 frames)
         else:
@@ -734,7 +845,11 @@ def _seed_ai_layer(db: AsyncSession, base_time: datetime) -> int:
 
     # OOD frame indices → fixed UUID lookup
     ood_frame_map = {14: _D4_OOD_INF_IDS[0], 17: _D4_OOD_INF_IDS[1], 22: _D4_OOD_INF_IDS[2]}
-    continue_frame_map = {3: _D4_CONTINUE_INF_IDS[0], 6: _D4_CONTINUE_INF_IDS[1], 9: _D4_CONTINUE_INF_IDS[2]}
+    continue_frame_map = {
+        3: _D4_CONTINUE_INF_IDS[0],
+        6: _D4_CONTINUE_INF_IDS[1],
+        9: _D4_CONTINUE_INF_IDS[2],
+    }
 
     for f in range(30):
         ts_ns = int((i04_base + timedelta(seconds=f * i04_step_s)).timestamp() * 1e9)
@@ -743,7 +858,11 @@ def _seed_ai_layer(db: AsyncSession, base_time: datetime) -> int:
         # Embed attention heatmap in outputs for OOD frames (14-22) — Grad-CAM is available here
         outputs = None
         if f in ood_frame_map or (14 <= f <= 22):
-            outputs = {"attention_heatmap": shadow_heatmap, "top_class": "shadow", "top_score": i04_confs[f]}
+            outputs = {
+                "attention_heatmap": shadow_heatmap,
+                "top_class": "shadow",
+                "top_score": i04_confs[f],
+            }
 
         inf = Inference(
             id=inf_id,
@@ -761,21 +880,39 @@ def _seed_ai_layer(db: AsyncSession, base_time: datetime) -> int:
         db.add(inf)
 
     # OOD signals for Demo 4 — embedding distance + softmax entropy
-    db.add(OODSignal(
-        id=uuid.uuid4(), inference_id=_D4_OOD_INF_IDS[0],
-        signal_type="embedding_distance", score=2.71, threshold=2.0, is_ood=True,
-        created_at=now,
-    ))
-    db.add(OODSignal(
-        id=uuid.uuid4(), inference_id=_D4_OOD_INF_IDS[1],
-        signal_type="softmax_entropy", score=0.81, threshold=0.60, is_ood=True,
-        created_at=now,
-    ))
-    db.add(OODSignal(
-        id=uuid.uuid4(), inference_id=_D4_OOD_INF_IDS[2],
-        signal_type="embedding_distance", score=2.93, threshold=2.0, is_ood=True,
-        created_at=now,
-    ))
+    db.add(
+        OODSignal(
+            id=uuid.uuid4(),
+            inference_id=_D4_OOD_INF_IDS[0],
+            signal_type="embedding_distance",
+            score=2.71,
+            threshold=2.0,
+            is_ood=True,
+            created_at=now,
+        )
+    )
+    db.add(
+        OODSignal(
+            id=uuid.uuid4(),
+            inference_id=_D4_OOD_INF_IDS[1],
+            signal_type="softmax_entropy",
+            score=0.81,
+            threshold=0.60,
+            is_ood=True,
+            created_at=now,
+        )
+    )
+    db.add(
+        OODSignal(
+            id=uuid.uuid4(),
+            inference_id=_D4_OOD_INF_IDS[2],
+            signal_type="embedding_distance",
+            score=2.93,
+            threshold=2.0,
+            is_ood=True,
+            created_at=now,
+        )
+    )
 
     # Decisions for Demo 4 — early "continue" actions while confidence was still high
     # These trigger AI-005 (continue + OOD = decision-perception mismatch)
@@ -784,28 +921,38 @@ def _seed_ai_layer(db: AsyncSession, base_time: datetime) -> int:
         (_D4_CONTINUE_INF_IDS[1], i04_confs[6], 6 * i04_step_s),
         (_D4_CONTINUE_INF_IDS[2], i04_confs[9], 9 * i04_step_s),
     ]:
-        db.add(Decision(
-            id=uuid.uuid4(),
-            inference_id=inf_id,
-            policy_name="nav_policy_v2",
-            action="continue_navigation",
-            alternatives=[{"action": "slow_down", "score": 0.31}, {"action": "stop", "score": 0.12}],
-            confidence=conf,
-            timestamp_ns=int((i04_base + timedelta(seconds=ts_offset_s)).timestamp() * 1e9),
-            created_at=now,
-        ))
+        db.add(
+            Decision(
+                id=uuid.uuid4(),
+                inference_id=inf_id,
+                policy_name="nav_policy_v2",
+                action="continue_navigation",
+                alternatives=[
+                    {"action": "slow_down", "score": 0.31},
+                    {"action": "stop", "score": 0.12},
+                ],
+                confidence=conf,
+                timestamp_ns=int((i04_base + timedelta(seconds=ts_offset_s)).timestamp() * 1e9),
+                created_at=now,
+            )
+        )
 
     # Final emergency stop decision (correct response — does NOT trigger AI-005)
-    db.add(Decision(
-        id=uuid.uuid4(),
-        inference_id=_D4_OOD_INF_IDS[0],  # frame 14 — first OOD frame
-        policy_name="nav_policy_v2",
-        action="emergency_stop",
-        alternatives=[{"action": "slow_down", "score": 0.45}, {"action": "continue_navigation", "score": 0.08}],
-        confidence=0.89,
-        timestamp_ns=int((i04_base + timedelta(seconds=14 * i04_step_s)).timestamp() * 1e9),
-        created_at=now,
-    ))
+    db.add(
+        Decision(
+            id=uuid.uuid4(),
+            inference_id=_D4_OOD_INF_IDS[0],  # frame 14 — first OOD frame
+            policy_name="nav_policy_v2",
+            action="emergency_stop",
+            alternatives=[
+                {"action": "slow_down", "score": 0.45},
+                {"action": "continue_navigation", "score": 0.08},
+            ],
+            confidence=0.89,
+            timestamp_ns=int((i04_base + timedelta(seconds=14 * i04_step_s)).timestamp() * 1e9),
+            created_at=now,
+        )
+    )
 
     return 30 + 25 + 10 + 30  # 95 total frames
 

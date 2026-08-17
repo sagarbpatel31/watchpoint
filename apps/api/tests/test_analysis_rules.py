@@ -3,6 +3,7 @@
 Tests run without a live database — we mock the DB session to return
 controlled metric/event fixtures and verify rule trigger logic directly.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -16,6 +17,7 @@ from app.models.telemetry import EventLog, LogLevel, MetricPoint
 # ---------------------------------------------------------------------------
 # Helpers — build fake ORM objects
 # ---------------------------------------------------------------------------
+
 
 def _metric(name: str, value: float) -> MetricPoint:
     m = MagicMock(spec=MetricPoint)
@@ -37,12 +39,15 @@ def _event(message: str, level: LogLevel = LogLevel.info) -> EventLog:
 def _mock_db(metrics: list[MetricPoint], events: list[EventLog]) -> AsyncMock:
     """Return an AsyncSession mock that yields the given metrics and events.
 
-    Call order expected by analyze_incident:
-      1. metrics    (Rule 1–7 system rules)
-      2. events     (Rule 1–7 system rules)
-      3. inferences (RuleAI001._get_inferences)
-      4. ood_signals (RuleAI002._get_ood_signals via inferences join)
-      5. inferences (RuleAI003._get_inferences)
+    analyze_incident queries metrics first, then events, then once per AI rule
+    for that rule's own inputs. The AI rules receive empty results so they stay
+    silent in system-rule tests.
+
+    Everything after the first two calls returns empty on demand rather than
+    coming from a fixed-length list. A hardcoded list has to be extended every
+    time a rule is added, and forgetting fails every test in this module with
+    an opaque StopAsyncIteration — which is exactly what happened when AI-004
+    and AI-005 landed alongside a mock written for three AI rules.
     """
     db = AsyncMock()
 
@@ -52,19 +57,22 @@ def _mock_db(metrics: list[MetricPoint], events: list[EventLog]) -> AsyncMock:
     events_result = MagicMock()
     events_result.scalars.return_value.all.return_value = events
 
-    # AI rules receive empty data — they should not fire in system-rule tests
     empty_result = MagicMock()
     empty_result.scalars.return_value.all.return_value = []
 
-    db.execute = AsyncMock(
-        side_effect=[metrics_result, events_result, empty_result, empty_result, empty_result]
-    )
+    queued = [metrics_result, events_result]
+
+    def _next_result(*_args: object, **_kwargs: object) -> MagicMock:
+        return queued.pop(0) if queued else empty_result
+
+    db.execute = AsyncMock(side_effect=_next_result)
     return db
 
 
 # ---------------------------------------------------------------------------
 # Rule 1 — Resource contention
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_rule1_resource_contention_fires() -> None:
@@ -73,6 +81,7 @@ async def test_rule1_resource_contention_fires() -> None:
 
     with patch("app.services.analysis.generate_llm_summary", return_value="test summary"):
         from app.services.analysis import analyze_incident
+
         result = await analyze_incident(uuid.uuid4(), db, incident_title="CPU spike test")
 
     causes = {c["cause"] for c in result["probable_causes"]}
@@ -86,6 +95,7 @@ async def test_rule1_no_fire_when_cpu_low() -> None:
 
     with patch("app.services.analysis.generate_llm_summary", return_value="test summary"):
         from app.services.analysis import analyze_incident
+
         result = await analyze_incident(uuid.uuid4(), db)
 
     causes = {c["cause"] for c in result["probable_causes"]}
@@ -96,6 +106,7 @@ async def test_rule1_no_fire_when_cpu_low() -> None:
 # Rule 2 — Thermal throttling
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_rule2_thermal_throttling_fires() -> None:
     metrics = [_metric("gpu_temp_c", 80.0), _metric("inference_latency_ms", 150.0)]
@@ -103,6 +114,7 @@ async def test_rule2_thermal_throttling_fires() -> None:
 
     with patch("app.services.analysis.generate_llm_summary", return_value="test summary"):
         from app.services.analysis import analyze_incident
+
         result = await analyze_incident(uuid.uuid4(), db, incident_title="Thermal test")
 
     causes = {c["cause"] for c in result["probable_causes"]}
@@ -112,6 +124,7 @@ async def test_rule2_thermal_throttling_fires() -> None:
 # ---------------------------------------------------------------------------
 # Rule 3 — Process failure chain
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_rule3_process_failure_chain_fires() -> None:
@@ -123,6 +136,7 @@ async def test_rule3_process_failure_chain_fires() -> None:
 
     with patch("app.services.analysis.generate_llm_summary", return_value="test summary"):
         from app.services.analysis import analyze_incident
+
         result = await analyze_incident(uuid.uuid4(), db)
 
     causes = {c["cause"] for c in result["probable_causes"]}
@@ -132,6 +146,7 @@ async def test_rule3_process_failure_chain_fires() -> None:
 # ---------------------------------------------------------------------------
 # Rule 4 — Version regression
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_rule4_version_regression_fires() -> None:
@@ -143,6 +158,7 @@ async def test_rule4_version_regression_fires() -> None:
 
     with patch("app.services.analysis.generate_llm_summary", return_value="test summary"):
         from app.services.analysis import analyze_incident
+
         result = await analyze_incident(uuid.uuid4(), db)
 
     causes = {c["cause"] for c in result["probable_causes"]}
@@ -153,12 +169,14 @@ async def test_rule4_version_regression_fires() -> None:
 # Fallback — unknown cause when no rules fire
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_fallback_when_no_rules_match() -> None:
     db = _mock_db([], [])
 
     with patch("app.services.analysis.generate_llm_summary", return_value="test summary"):
         from app.services.analysis import analyze_incident
+
         result = await analyze_incident(uuid.uuid4(), db)
 
     causes = {c["cause"] for c in result["probable_causes"]}
@@ -170,6 +188,7 @@ async def test_fallback_when_no_rules_match() -> None:
 # LLM fallback — no API key
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_llm_fallback_without_api_key() -> None:
     """generate_llm_summary must return rules text when ANTHROPIC_API_KEY is empty."""
@@ -179,7 +198,11 @@ async def test_llm_fallback_without_api_key() -> None:
         mock_settings.anthropic_api_key = ""
         result = await generate_llm_summary(
             incident_title="test",
-            top_cause={"cause": "Resource contention", "description": "CPU too high", "confidence": 0.85},
+            top_cause={
+                "cause": "Resource contention",
+                "description": "CPU too high",
+                "confidence": 0.85,
+            },
             evidence_signals=["CPU at 92%"],
         )
 
@@ -190,16 +213,24 @@ async def test_llm_fallback_without_api_key() -> None:
 # Result structure
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_result_has_required_fields() -> None:
     db = _mock_db([], [])
 
     with patch("app.services.analysis.generate_llm_summary", return_value="summary text"):
         from app.services.analysis import analyze_incident
+
         result = await analyze_incident(uuid.uuid4(), db)
 
-    required = ["summary", "probable_causes", "evidence", "suggested_steps",
-                "metrics_analyzed", "events_analyzed"]
+    required = [
+        "summary",
+        "probable_causes",
+        "evidence",
+        "suggested_steps",
+        "metrics_analyzed",
+        "events_analyzed",
+    ]
     for field in required:
         assert field in result, f"Missing field: {field}"
 

@@ -19,5 +19,9 @@ services:
         value: /tmp/storage
       - key: ANTHROPIC_API_KEY
         sync: false  # paste from console.anthropic.com — enables LLM incident summaries
+      - key: ENABLE_DEMO_SEED
+        value: "false"  # POST /seed/demo returns 404. To seed the public demo once:
+                        # flip to true in the Render dashboard, POST the endpoint,
+                        # then flip back. Leaving it on lets anyone reset the demo.
       - key: PORT
         value: "8000"

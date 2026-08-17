@@ -1,12 +1,14 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -18,20 +20,24 @@ import (
 func main() {
 	cfg := parseFlags()
 
-	log.Printf("Watchpoint edge-agent starting (device=%s, interval=%s, api=%s)",
-		cfg.DeviceID, cfg.CollectionInterval, cfg.APIURL)
+	log.Printf("Watchpoint edge-agent starting (name=%s, interval=%s, api=%s)",
+		cfg.DeviceName, cfg.CollectionInterval, cfg.APIURL)
 
-	client := sender.NewClient(cfg.APIURL, cfg.DeviceID, cfg.DeviceName)
+	client := sender.NewClient(cfg.APIURL, cfg.Token)
 
-	// Register device on startup.
-	if err := client.RegisterDevice(); err != nil {
-		log.Printf("WARNING: device registration failed: %v (will continue anyway)", err)
-	} else {
-		log.Println("Device registered successfully")
-	}
+	// Device provisioning is an operator action: create the device and mint its
+	// token through the API, then configure this agent with the token. The
+	// agent no longer self-registers — /devices/register requires an operator
+	// JWT, and self-registration is how every real device ended up in the demo
+	// project.
 
 	// Start health endpoint.
 	go serveHealth()
+
+	// The sampler is stateful: CPU usage and network rates are deltas between
+	// consecutive readings of cumulative counters, so it must outlive the loop.
+	// The first tick therefore reports no CPU figure.
+	sampler := collector.NewSampler()
 
 	// Run collection loop.
 	ticker := time.NewTicker(cfg.CollectionInterval)
@@ -40,16 +46,32 @@ func main() {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
+	var loggedUnsupported bool
+
 	log.Println("Collection loop running. Press Ctrl+C to stop.")
 	for {
 		select {
 		case <-ticker.C:
-			metrics := collector.Collect()
+			metrics, err := sampler.Sample()
+			if err != nil {
+				// On a non-Linux dev machine this is permanent, so say it once
+				// rather than every tick.
+				if errors.Is(err, collector.ErrUnsupportedPlatform) {
+					if !loggedUnsupported {
+						log.Printf("No metrics collected: %v. The agent will keep "+
+							"running but report nothing.", err)
+						loggedUnsupported = true
+					}
+					continue
+				}
+				log.Printf("ERROR collecting metrics: %v", err)
+				continue
+			}
+
 			if err := client.SendMetrics(metrics); err != nil {
 				log.Printf("ERROR sending metrics: %v", err)
 			} else {
-				log.Printf("Metrics sent (cpu=%.1f%%, mem_used=%d MB)",
-					metrics.CPUUsagePercent, metrics.MemoryUsedBytes/(1024*1024))
+				log.Printf("Metrics sent (%s)", summarize(metrics))
 			}
 		case sig := <-sigCh:
 			log.Printf("Received %s, shutting down", sig)
@@ -58,27 +80,58 @@ func main() {
 	}
 }
 
+// summarize renders a metrics snapshot for the log line, showing "n/a" for
+// readings the agent could not take rather than printing a misleading zero.
+func summarize(m collector.SystemMetrics) string {
+	parts := make([]string, 0, 4)
+
+	if m.CPUUsagePercent != nil {
+		parts = append(parts, fmt.Sprintf("cpu=%.1f%%", *m.CPUUsagePercent))
+	} else {
+		parts = append(parts, "cpu=n/a")
+	}
+	if pct, ok := m.MemoryUsedPercent(); ok {
+		parts = append(parts, fmt.Sprintf("mem=%.1f%% of %d MB",
+			pct, m.MemoryTotalBytes/(1024*1024)))
+	}
+	if pct, ok := m.DiskUsedPercent(); ok {
+		parts = append(parts, fmt.Sprintf("disk=%.1f%%", pct))
+	}
+	if m.CPUTempC != nil {
+		parts = append(parts, fmt.Sprintf("cpu_temp=%.1fC", *m.CPUTempC))
+	}
+	if m.GPUTempC != nil {
+		parts = append(parts, fmt.Sprintf("gpu_temp=%.1fC", *m.GPUTempC))
+	}
+
+	return strings.Join(parts, ", ")
+}
+
 func parseFlags() config.Config {
 	apiURL := flag.String("api-url", "http://localhost:8000", "Watchpoint API base URL")
-	deviceID := flag.String("device-id", "", "Unique device identifier")
-	deviceName := flag.String("device-name", "", "Human-readable device name")
+	token := flag.String("token", os.Getenv("WP_DEVICE_TOKEN"),
+		"Device token for ingest (default: $WP_DEVICE_TOKEN). Mint one with "+
+			"POST /api/v1/devices/{device_id}/tokens")
+	deviceName := flag.String("device-name", "", "Human-readable device name, used in logs only")
 	interval := flag.Duration("interval", 5*time.Second, "Metrics collection interval")
 	flag.Parse()
 
-	if *deviceID == "" {
+	if *token == "" {
+		log.Fatal("no device token: pass -token or set WP_DEVICE_TOKEN. " +
+			"Mint one with POST /api/v1/devices/{device_id}/tokens")
+	}
+
+	if *deviceName == "" {
 		hostname, err := os.Hostname()
 		if err != nil {
 			hostname = "unknown"
 		}
-		*deviceID = hostname
-	}
-	if *deviceName == "" {
-		*deviceName = *deviceID
+		*deviceName = hostname
 	}
 
 	return config.Config{
 		APIURL:             *apiURL,
-		DeviceID:           *deviceID,
+		Token:              *token,
 		DeviceName:         *deviceName,
 		CollectionInterval: *interval,
 	}

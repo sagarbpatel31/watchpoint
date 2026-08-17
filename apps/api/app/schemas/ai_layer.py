@@ -8,6 +8,9 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
+# Ingest payloads reject unknown fields — see app/schemas/telemetry.py for why.
+_STRICT = {"extra": "forbid"}
+
 # ---------------------------------------------------------------------------
 # ModelRun
 # ---------------------------------------------------------------------------
@@ -17,12 +20,15 @@ class ModelRunCreate(BaseModel):
     """Payload for POST /ingest/model-runs."""
 
     id: Optional[uuid.UUID] = Field(default=None, description="Client-generated UUID (optional)")
-    device_id: uuid.UUID
+    # Optional: derived from the authenticated device token when absent.
+    device_id: Optional[uuid.UUID] = None
     framework: str = "pytorch"
     model_name: str
     weights_hash: Optional[str] = None
     started_at: Optional[datetime] = None
     metadata: Optional[dict[str, Any]] = None
+
+    model_config = _STRICT
 
 
 class ModelRunResponse(BaseModel):
@@ -49,7 +55,8 @@ class InferenceItem(BaseModel):
         default=None, description="Client-generated UUID. Auto-generated if absent."
     )
     model_run_id: uuid.UUID
-    device_id: uuid.UUID
+    # Optional: derived from the authenticated device token when absent.
+    device_id: Optional[uuid.UUID] = None
     incident_id: Optional[uuid.UUID] = None
     timestamp_ns: int
     input_hash: Optional[str] = None
@@ -62,11 +69,15 @@ class InferenceItem(BaseModel):
     output_mean: Optional[float] = None
     output_std: Optional[float] = None
 
+    model_config = _STRICT
+
 
 class InferenceBatchCreate(BaseModel):
     """Payload for POST /ingest/inferences."""
 
     inferences: list[InferenceItem] = Field(..., min_length=1)
+
+    model_config = _STRICT
 
 
 class InferenceResponse(BaseModel):
@@ -99,11 +110,15 @@ class DecisionCreate(BaseModel):
     confidence: Optional[float] = None
     timestamp_ns: Optional[int] = None
 
+    model_config = _STRICT
+
 
 class DecisionBatchCreate(BaseModel):
     """Payload for POST /ingest/decisions."""
 
     decisions: list[DecisionCreate] = Field(..., min_length=1)
+
+    model_config = _STRICT
 
 
 class DecisionResponse(BaseModel):

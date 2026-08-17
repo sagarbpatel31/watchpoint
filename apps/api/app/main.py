@@ -1,20 +1,20 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 from app.config import settings
 from app.database import engine
-from app.models import Base
 from app.routers import ai_ingest, auth, devices, health, incidents, ingest, projects, seed
+from app.security import require_current_user
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Create tables on startup (use alembic in production)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    # Schema is owned by Alembic — the container runs `alembic upgrade head`
+    # before uvicorn starts (see Dockerfile). Creating tables from metadata here
+    # would silently diverge from the migration history.
     yield
     await engine.dispose()
 
@@ -45,7 +45,7 @@ app.include_router(ai_ingest.router, prefix="/api/v1")
 app.include_router(ai_ingest.inferences_router, prefix="/api/v1")
 
 
-@app.get("/api/v1/bundles/{incident_id}")
+@app.get("/api/v1/bundles/{incident_id}", dependencies=[Depends(require_current_user)])
 async def download_bundle(incident_id: str):
     import os
 

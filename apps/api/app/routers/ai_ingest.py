@@ -1,10 +1,11 @@
 """AI layer ingest and query endpoints.
 
-Unauthenticated (same policy as /ingest/* routes) — Priority 3 to add auth.
-
 Routers:
   router             — POST /ingest/model-runs, /ingest/inferences, /ingest/decisions
+                       Device-token auth (X-Device-Token); written to by the
+                       model-collector agent.
   inferences_router  — GET /inferences/{id}, GET /inferences/{id}/attention
+                       JWT auth; read by the dashboard.
 """
 
 from __future__ import annotations
@@ -18,6 +19,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.ai_layer import Decision, Inference, ModelRun
+from app.models.device import Device
+from app.models.incident import Incident
 from app.schemas.ai_layer import (
     AttentionResponse,
     DecisionBatchCreate,
@@ -27,9 +30,14 @@ from app.schemas.ai_layer import (
     ModelRunCreate,
     ModelRunResponse,
 )
+from app.security import assert_device_matches, require_current_user, require_device_token
 
 router = APIRouter(prefix="/ingest", tags=["ai-ingest"])
-inferences_router = APIRouter(prefix="/inferences", tags=["ai-inferences"])
+inferences_router = APIRouter(
+    prefix="/inferences",
+    tags=["ai-inferences"],
+    dependencies=[Depends(require_current_user)],
+)
 
 
 # ---------------------------------------------------------------------------
@@ -50,10 +58,12 @@ inferences_router = APIRouter(prefix="/inferences", tags=["ai-inferences"])
 async def create_model_run(
     payload: ModelRunCreate,
     db: AsyncSession = Depends(get_db),
+    device: Device = Depends(require_device_token),
 ) -> ModelRunResponse:
+    assert_device_matches(device, payload.device_id)
     run = ModelRun(
         id=payload.id or uuid.uuid4(),
-        device_id=payload.device_id,
+        device_id=payload.device_id or device.id,
         framework=payload.framework,  # type: ignore[arg-type]
         model_name=payload.model_name,
         weights_hash=payload.weights_hash,
@@ -84,14 +94,29 @@ async def create_model_run(
 async def ingest_inferences(
     payload: InferenceBatchCreate,
     db: AsyncSession = Depends(get_db),
+    device: Device = Depends(require_device_token),
 ) -> IngestResponse:
+    # incident_id is a foreign key. An agent sending a stale or unknown one used
+    # to surface as a 500 from the FK violation; answer 404 instead so the
+    # client can tell a bad reference from a server fault.
+    referenced_incidents = {i.incident_id for i in payload.inferences if i.incident_id}
+    if referenced_incidents:
+        known = await db.execute(select(Incident.id).where(Incident.id.in_(referenced_incidents)))
+        missing = referenced_incidents - {row.id for row in known}
+        if missing:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Unknown incident_id {sorted(str(m) for m in missing)[0]}",
+            )
+
     rows: list[Inference] = []
     for item in payload.inferences:
+        assert_device_matches(device, item.device_id)
         rows.append(
             Inference(
                 id=item.inference_id or uuid.uuid4(),
                 model_run_id=item.model_run_id,
-                device_id=item.device_id,
+                device_id=item.device_id or device.id,
                 incident_id=item.incident_id,
                 timestamp_ns=item.timestamp_ns,
                 input_hash=item.input_hash,
@@ -128,7 +153,26 @@ async def ingest_inferences(
 async def ingest_decisions(
     payload: DecisionBatchCreate,
     db: AsyncSession = Depends(get_db),
+    device: Device = Depends(require_device_token),
 ) -> IngestResponse:
+    # A decision carries no device_id of its own, so scope it through the
+    # inference it references: every referenced inference must belong to the
+    # device this token was issued for.
+    referenced_ids = {item.inference_id for item in payload.decisions}
+    owner_result = await db.execute(
+        select(Inference.id, Inference.device_id).where(Inference.id.in_(referenced_ids))
+    )
+    owners = {row.id: row.device_id for row in owner_result}
+
+    for inference_id in referenced_ids:
+        owner_device_id = owners.get(inference_id)
+        if owner_device_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Unknown inference_id {inference_id}",
+            )
+        assert_device_matches(device, owner_device_id)
+
     now = datetime.now(timezone.utc)
     rows: list[Decision] = []
     for item in payload.decisions:

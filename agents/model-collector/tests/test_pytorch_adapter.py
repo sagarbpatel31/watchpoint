@@ -3,6 +3,7 @@
 Requires torch to be installed (dev extra).
 Skip gracefully if torch is not available.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -41,7 +42,7 @@ class TinyNet(nn.Module):
 # ---------------------------------------------------------------------------
 
 
-def _make_collector() -> "Collector":
+def _make_collector():
     from model_collector import Collector
 
     return Collector(device_id="test-device", ring_buffer_size=64)
@@ -85,9 +86,15 @@ def test_frame_has_required_fields() -> None:
     # Top-level hook frame
     top_frame = next(f for f in frames if f["layer_name"] == "__top__")
     required = [
-        "inference_id", "layer_name", "timestamp_ns",
-        "input_shapes", "output_shape", "output_mean", "output_std",
-        "model_run_id", "device_id",
+        "inference_id",
+        "layer_name",
+        "timestamp_ns",
+        "input_shapes",
+        "output_shape",
+        "output_mean",
+        "output_std",
+        "model_run_id",
+        "device_id",
     ]
     for field in required:
         assert field in top_frame, f"Missing field: {field}"
@@ -127,9 +134,7 @@ def test_confidence_captured_for_classification_output() -> None:
     x = torch.randn(1, 8)
     _ = model(x)
 
-    top_frame = next(
-        (f for f in collector._buf.snapshot() if f["layer_name"] == "__top__"), None
-    )
+    top_frame = next((f for f in collector._buf.snapshot() if f["layer_name"] == "__top__"), None)
     assert top_frame is not None
     conf = top_frame.get("confidence")
     assert conf is not None
@@ -175,6 +180,7 @@ def test_flush_clears_buffer(tmp_path: pytest.TempPathFactory) -> None:
     assert collector.buffer_len == 0
 
     import os
+
     assert os.path.exists(path)
     assert path.endswith(".msgpack")
 

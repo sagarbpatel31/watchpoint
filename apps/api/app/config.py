@@ -11,6 +11,10 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expiration_minutes: int = 60
     anthropic_api_key: str = ""  # optional — LLM summary disabled if empty
+    # POST /seed/demo writes fixed-ID demo data. Off by default so an
+    # unconfigured production deploy cannot be seeded by an anonymous caller.
+    # docker-compose sets this true for local dev; render.yaml sets it false.
+    enable_demo_seed: bool = False
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 
