@@ -55,27 +55,43 @@ confirming on a Jetson before anyone relies on `cpu_temp_c` in the field.
 
 ---
 
-## 🟡 Priority 2 — `inference_latency_ms` has no producer
+## 🟡 Priority 2 — the model-collector never measures inference latency
 
 Files:
-- `agents/model-collector/model_collector/sender.py`
-- `apps/api/app/services/analysis.py` (rule 2, line ~121)
+- `agents/model-collector/model_collector/adapters/pytorch_adapter.py`
+- `agents/model-collector/model_collector/sender.py` (`_INFERENCE_FIELDS`)
+- `apps/api/app/rca/ai_rules/rule_ai003.py`
+- `apps/api/app/services/analysis.py` (thermal rule, line ~121)
 
-The RCA engine keys on exactly four metric names. Three now have producers;
-`inference_latency_ms` has none — it is stored on `Inference.latency_ms` as a
-column, never emitted as a `MetricPoint`, so `metric_map` never contains it.
+**Correcting an earlier entry here, which claimed the latency data "is already
+there" on `Inference.latency_ms` and only needed re-exposing. It is not there.**
+The column exists, `sender.py` lists `latency_ms` in its projection whitelist,
+and the adapter docstring advertises "wall latency" — but nothing ever writes
+the field. The frame built in `pytorch_adapter._build_frame` carries
+`inference_id`, `layer_name`, `timestamp_ns`, input/output shapes, output
+statistics and `confidence`, and no latency at all. The only timing in the file
+is `elapsed_us`, which measures the hook's *own* overhead for a warning check
+and is never captured.
 
-The consequence is specific and confirmed by running the analyzer: with
-`cpu_temp_c` above 75 the thermal rule contributes *evidence* but no probable
-cause, because the "Thermal throttling" cause additionally requires
-`inference_latency_ms > 100`. Feeding both in makes it fire at 0.80 confidence.
-So demo scenario 2 works only from seeded data, and would still not reproduce on
-a real overheating robot.
+Two rules depend on it and neither can fire on real data:
 
-Fix is to have model-collector emit per-inference latency as a metric point
-alongside the `Inference` row, or to have the analyzer read latency from the
-`inferences` table rather than from `metric_map`. The latter is probably right —
-the data is already there and duplicating it invites drift.
+- **AI-003** filters `inferences` on `latency_ms is not None`, which is never
+  true outside the seed.
+- The **system thermal rule** requires `inference_latency_ms > 100` on top of a
+  temperature above 75 before it will name "Thermal throttling". Confirmed by
+  running the analyzer: temperature alone yields evidence but no probable cause;
+  supplying both makes it fire at 0.80.
+
+So a real overheating robot produces a temperature reading and no diagnosis.
+
+Fix: time the forward pass in the adapter and set `latency_ms` on the frame.
+That is a few lines and it makes AI-003 genuinely live. Emitting it *also* as an
+`inference_latency_ms` MetricPoint is what closes the thermal rule — worth doing
+in the same change, since the two consumers read from different places.
+
+This is the same read-path/write-path split that hid the broken collectors: the
+schema, the whitelist, the rule and the docstring all describe a field that no
+code produces.
 
 ---
 

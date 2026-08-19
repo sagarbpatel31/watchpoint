@@ -77,11 +77,19 @@ export default function LandingPage() {
                 It stopped for a shadow.
               </span>
             </h1>
-            <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mb-8 leading-relaxed">
+            <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mb-6 leading-relaxed">
               Watchpoint is AI failure forensics for physical AI. It captures what
-              your model saw, what it predicted, and what your policy decided at
-              the moment of failure — then replays that exact inference. Root
-              cause at the AI layer, not just the logs.
+              your model predicted at the moment of failure — outputs, per-class
+              confidence, output statistics — joins it to system and ROS 2
+              telemetry on one timeline, and names the failure mode. Root cause at
+              the AI layer, not just the logs.
+            </p>
+            <p className="text-sm text-muted-foreground/80 max-w-2xl mb-8 leading-relaxed">
+              Where this is going: deterministic replay of the captured inference
+              against new weights, attention overlays on the failure frame, and
+              out-of-distribution scoring from live embeddings. None of those
+              three work yet, and they are marked as such below — nothing on this
+              page claims to run that doesn&apos;t.
             </p>
             <div className="flex flex-wrap gap-4">
               <Link href="/dashboard" className={cn(buttonVariants({ size: "lg" }), "gap-2")}>
@@ -106,8 +114,13 @@ export default function LandingPage() {
       {/* The four layers — what we capture */}
       <section className="border-y border-border/40 bg-card/20">
         <div className="max-w-6xl mx-auto px-6 py-12">
-          <p className="text-sm text-muted-foreground mb-8">
+          <p className="text-sm text-muted-foreground mb-2">
             Four things your stack throws away every frame — and needs at 2am:
+          </p>
+          <p className="text-xs text-muted-foreground/70 mb-8 max-w-2xl leading-relaxed">
+            This is the thesis the product is built around. One of the four is
+            captured today; the line under each says exactly where it stands, so
+            you can tell the plan from the product.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
             <CaptureLayer
@@ -115,24 +128,28 @@ export default function LandingPage() {
               index="01"
               title="What the model saw"
               detail="Synced camera, lidar, and depth frames at inference time"
+              captured="Not captured yet — the ROS 2 sensor ring buffer is unbuilt."
             />
             <CaptureLayer
               icon={<Eye className="w-4 h-4" />}
               index="02"
               title="What it predicted"
               detail="Outputs, per-class confidence, attention and saliency"
+              captured="Outputs, per-class confidence and output statistics captured today via the PyTorch hooks. Attention and saliency are not."
             />
             <CaptureLayer
               icon={<Workflow className="w-4 h-4" />}
               index="03"
               title="What the policy decided"
               detail="Chosen action, ranked alternatives, and their scores"
+              captured="Schema and ingest endpoint exist; no collector emits decisions yet."
             />
             <CaptureLayer
               icon={<Crosshair className="w-4 h-4" />}
               index="04"
               title="Whether the input was novel"
               detail="Embedding distance from your training distribution"
+              captured="Not captured yet — penultimate-layer embedding extraction is unbuilt."
             />
           </div>
         </div>
@@ -187,7 +204,7 @@ export default function LandingPage() {
               <ContrastRow
                 label="Watchpoint"
                 answers="Was the model right — and if not, why?"
-                verdict="AI-002: input 2.7σ out of distribution."
+                verdict="AI-001: detection confidence collapsed 0.93 → 0.41."
                 highlight
               />
             </div>
@@ -204,8 +221,8 @@ export default function LandingPage() {
             </h2>
             <p className="text-muted-foreground max-w-2xl mx-auto">
               Watchpoint names the failure instead of handing you eleven charts.
-              Each rule runs against captured model state, not just system
-              telemetry.
+              These rules read model state, not just system telemetry — and each
+              one is labelled with how far along it actually is.
             </p>
           </div>
 
@@ -215,21 +232,21 @@ export default function LandingPage() {
               name="Perception confidence collapse"
               trigger="Detection confidence p50 over 60s drops more than 30% from baseline"
               severity="high"
-              shipped
+              status="live"
             />
             <RuleCard
               id="AI-002"
               name="Out-of-distribution input"
               trigger="Embedding distance exceeds 3σ from the training-set centroid"
               severity="medium"
-              shipped
+              status="demo"
             />
             <RuleCard
               id="AI-003"
               name="Inference latency spike"
               trigger="p99 latency over 60s exceeds 2x baseline"
               severity="medium"
-              shipped
+              status="demo"
             />
             <RuleCard
               id="AI-004"
@@ -242,6 +259,7 @@ export default function LandingPage() {
               name="Decision-perception mismatch"
               trigger="Policy chose an action incompatible with a high-confidence detection"
               severity="high"
+              status="demo"
             />
             <RuleCard
               id="AI-006"
@@ -263,10 +281,14 @@ export default function LandingPage() {
             />
           </div>
 
-          <p className="text-xs text-muted-foreground mt-6 text-center">
-            Rules marked <span className="text-green-500">shipped</span>{" "}
-            run today. The rest are specified and on the roadmap — we
-            don&apos;t claim what isn&apos;t merged.
+          <p className="text-xs text-muted-foreground mt-6 text-center max-w-2xl mx-auto leading-relaxed">
+            <span className="text-green-500">live</span> means the rule runs on
+            data our collectors actually capture from a running system.{" "}
+            <span className="text-amber-500">demo data only</span> means the rule
+            is merged but nothing produces its input yet, so it fires against the
+            seeded demo and not against your fleet. Unmarked rules are specified
+            and on the roadmap. We would rather label the gap than let you find
+            it after installing.
           </p>
         </div>
       </section>
@@ -287,7 +309,7 @@ export default function LandingPage() {
               step="1"
               icon={<Brain className="w-6 h-6" />}
               title="Instrument"
-              body="Two lines attach forward hooks to your PyTorch model. The collector rings a fixed-size buffer in-process — designed for under 1% overhead at p99, with nothing transmitted until an incident fires."
+              body="Two lines attach forward hooks to your PyTorch model. The collector rings a fixed-size buffer in-process, with nothing transmitted until an incident fires. Low overhead is a hard design constraint — we will publish a measured p99 figure rather than an estimate."
               items={[
                 "PyTorch adapter (shipped)",
                 "ONNX Runtime and TensorRT (roadmap)",
@@ -311,12 +333,12 @@ export default function LandingPage() {
               step="3"
               icon={<RefreshCw className="w-6 h-6" />}
               title="Replay"
-              body="Export a portable bundle any engineer can open, or re-run the captured inputs against new weights to prove the fix before it reaches the fleet."
+              body="Export a portable bundle any engineer can open. The sandbox that re-runs captured inputs against new weights — to prove a fix before it reaches the fleet — is the next thing we are building, not something you can run today."
               items={[
                 "Replay bundle ZIP export (shipped)",
                 "Deterministic replay sandbox (roadmap)",
                 "Attention overlay on the failure frame (roadmap)",
-                "Decision trace with ranked alternatives",
+                "Decision trace with ranked alternatives (roadmap)",
               ]}
             />
           </div>
@@ -379,9 +401,9 @@ export default function LandingPage() {
         <div className="max-w-3xl mx-auto px-6 text-center">
           <h2 className="text-3xl font-bold mb-4">Run the whole stack locally</h2>
           <p className="text-muted-foreground mb-8">
-            Clone, compose up, seed. Three demo incidents, each carrying both
-            system telemetry and captured AI-layer inferences — no account, no
-            cloud.
+            Clone, compose up, seed. Three demo incidents, each carrying system
+            telemetry and seeded AI-layer inferences — no account, no cloud. The
+            seed is illustrative data, not a recording of a real robot.
           </p>
 
           <div className="bg-muted/50 border border-border/40 rounded-lg px-6 py-5 font-mono text-sm text-left space-y-1.5 overflow-x-auto">
@@ -443,11 +465,14 @@ function CaptureLayer({
   index,
   title,
   detail,
+  captured,
 }: {
   icon: React.ReactNode;
   index: string;
   title: string;
   detail: string;
+  /** What the collectors record today. Everything else is stated as pending. */
+  captured: string;
 }) {
   return (
     <div>
@@ -456,7 +481,12 @@ function CaptureLayer({
         <span className="text-xs font-mono">{index}</span>
       </div>
       <div className="font-semibold text-sm mb-1">{title}</div>
-      <div className="text-sm text-muted-foreground leading-relaxed">{detail}</div>
+      <div className="text-sm text-muted-foreground leading-relaxed mb-2">
+        {detail}
+      </div>
+      <div className="text-xs text-muted-foreground/70 leading-relaxed">
+        {captured}
+      </div>
     </div>
   );
 }
@@ -491,18 +521,47 @@ function ContrastRow({
   );
 }
 
+/**
+ * A rule's build state, which is deliberately not the same question as whether
+ * its code is merged.
+ *
+ *   live    — runs end to end on data a collector actually captures
+ *   demo    — rule is merged, but nothing produces its input yet, so it can
+ *             only fire against seeded data
+ *   roadmap — specified, not built
+ *
+ * The distinction exists because "merged" and "works on your robot" came apart:
+ * AI-002 reads OODSignal rows, and the only writer of those is the demo seed.
+ */
+type RuleStatus = "live" | "demo" | "roadmap";
+
+const RULE_STATUS_BADGE: Record<
+  RuleStatus,
+  { label: string; className: string } | null
+> = {
+  live: {
+    label: "live",
+    className: "border-green-500/20 bg-green-500/10 text-green-500",
+  },
+  demo: {
+    label: "demo data only",
+    className: "border-amber-500/20 bg-amber-500/10 text-amber-500",
+  },
+  roadmap: null,
+};
+
 function RuleCard({
   id,
   name,
   trigger,
   severity,
-  shipped = false,
+  status = "roadmap",
 }: {
   id: string;
   name: string;
   trigger: string;
   severity: "critical" | "high" | "medium" | "low";
-  shipped?: boolean;
+  status?: RuleStatus;
 }) {
   const colors = {
     critical: "text-red-500 bg-red-500/10 border-red-500/20",
@@ -510,6 +569,8 @@ function RuleCard({
     medium: "text-yellow-500 bg-yellow-500/10 border-yellow-500/20",
     low: "text-blue-500 bg-blue-500/10 border-blue-500/20",
   };
+
+  const badge = RULE_STATUS_BADGE[status];
 
   return (
     <Card className="bg-card/50 border-border/40">
@@ -522,9 +583,11 @@ function RuleCard({
             <CardTitle className="text-base truncate">{name}</CardTitle>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            {shipped && (
-              <span className="text-xs px-2 py-0.5 rounded-full border border-green-500/20 bg-green-500/10 text-green-500">
-                shipped
+            {badge && (
+              <span
+                className={`text-xs px-2 py-0.5 rounded-full border ${badge.className}`}
+              >
+                {badge.label}
               </span>
             )}
             <span
