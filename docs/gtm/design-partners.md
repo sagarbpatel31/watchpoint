@@ -204,10 +204,43 @@ Then push for specifics — the difference between a useful call and a pleasant 
 - How many of these happen a month?
 - Who else got pulled in? For how long?
 
-**Only then, demo (5 min).** Show the confidence collapse with the OOD signal.
-Watch where they lean in. Stop talking when they do.
+**Only then, demo (5 min).** Show the **confidence collapse** (AI-001). That is
+the rule that runs on genuinely captured model state, so it is the one you can
+show without caveat.
+
+Do **not** lead with the OOD signal. AI-002 is merged, but nothing produces
+`OODSignal` rows outside the demo seed, so what you would be pointing at is
+illustrative data. If it comes up, say so in those words — see below.
 
 **Close (3 min).** "Would you want to try this on your fleet?" Then shut up.
+
+### When they ask "is this actually running on real robots?"
+
+They will, and it is the right question. The honest answer is a stronger
+position than a hedge — these are engineers, they will find the seam in the
+demo within a week of installing, and being told up front is what earns the
+second conversation.
+
+What is true today, in plain terms:
+
+- The collectors capture real data: host metrics from `/proc`, ROS 2 topic and
+  node health, and per-inference outputs, per-class confidence and output
+  statistics from PyTorch forward hooks.
+- **One** AI rule runs on that captured data end to end — confidence collapse
+  (AI-001) — alongside seven system-level rules that run on real host and ROS 2
+  telemetry.
+- AI-003 reads inference latency, which the collector does not populate yet, so
+  it currently fires only against the seed.
+- Out-of-distribution scoring, attention overlays, and deterministic replay are
+  **built into the plan, not into the product.** The demo shows them with
+  seeded data so you can see the shape of the thing.
+- It has not yet run on a production robot fleet. That is exactly what a design
+  partnership is for.
+
+Say the last point without flinching. "You would be the first" is a real offer
+to a team that wants influence over the roadmap, and a wasted meeting with a
+team that wants a finished product — and you want to find out which they are on
+call one, not in month three.
 
 ### Reading the answer
 
